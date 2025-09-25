@@ -1,13 +1,13 @@
 {
 	"$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-	"productName": "epicovid",
+	"productName": "EpiCovid",
 	"version": "0.1.0",
-	"identifier": "com.tauri.dev",
+	"identifier": "com.ciztek.epicovid",
 	"build": {
-		"frontendDist": "dist",
+		"frontendDist": "../dist",
 		"devUrl": "http://localhost:5173",
-		"beforeDevCommand": "npm run dev",
-		"beforeBuildCommand": "npm run build"
+		"beforeDevCommand": "pnpm run dev",
+		"beforeBuildCommand": "pnpm run build"
 	},
 	"app": {
 		"windows": [
