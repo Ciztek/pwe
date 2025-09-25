@@ -8,27 +8,26 @@ export type Platform = "tauri" | "capacitor" | "web";
  */
 export function detectPlatform(): Platform {
 	try {
-		// @ts-expect-error
-		if (typeof (window as any).__TAURI__ !== "undefined") {
+		const w = window as unknown as Record<string, unknown>;
+		if (typeof w.__TAURI__ !== "undefined") {
 			return "tauri";
 		}
 
-		// @ts-expect-error
-		if (typeof (window as any).Capacitor !== "undefined") {
+		if (typeof w.Capacitor !== "undefined") {
 			return "capacitor";
 		}
-	} catch (e) {
+	} catch {
 		// ignore
 	}
 	return "web";
 }
 
 export function isTauri(): boolean {
-	// @ts-expect-error
-	return typeof (window as any).__TAURI__ !== "undefined";
+	const w = window as unknown as Record<string, unknown>;
+	return typeof w.__TAURI__ !== "undefined";
 }
 
 export function isCapacitor(): boolean {
-	// @ts-expect-error
-	return typeof (window as any).Capacitor !== "undefined";
+	const w = window as unknown as Record<string, unknown>;
+	return typeof w.Capacitor !== "undefined";
 }

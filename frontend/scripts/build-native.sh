@@ -1,97 +1,464 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple helper to build Capacitor (Android) APK/AAB and Tauri bundles.
+# Minimal helper to build mobile (Capacitor Android) and desktop (Tauri) artifacts.
 # Usage:
-#   ./build-native.sh android-apk     # build Android release APK
-#   ./build-native.sh android-aab     # build Android AAB (bundle)
-#   ./build-native.sh tauri-linux     # build Linux bundles (AppImage, deb, ...)
-#   ./build-native.sh tauri-windows   # build Windows installer (on Windows / proper toolchain)
+#   ./build-native.sh android-apk
+#   ./build-native.sh android-aab
+#   ./build-native.sh tauri-linux
+#   ./build-native.sh tauri-windows
+#   ./build-native.sh all
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT_DIR"
+TOOLS_DIR="$ROOT_DIR/.tauri-tools"
+ANDROID_DIR="$ROOT_DIR/android"
+TAURI_DIR="$ROOT_DIR/src-tauri"
 
-echo "==> Installing dependencies (skip if already done)"
-if command -v pnpm >/dev/null 2>&1; then
-  PM=pnpm
-  $PM install
-else
-  PM=npm
-  echo "pnpm not found, falling back to npm install (may update package-lock.json)"
-  $PM install
+# Central build output folder for all packaged artifacts
+BUILD_DIR="$ROOT_DIR/.build"
+mkdir -p "$BUILD_DIR"
+
+readonly PKG_MANAGER="$(if [ -f "$ROOT_DIR/pnpm-lock.yaml" ] && command -v pnpm >/dev/null 2>&1; then echo "pnpm"; elif command -v npm >/dev/null 2>&1; then echo "npm"; else echo "npm"; fi)"
+
+echo "Root: $ROOT_DIR"
+echo "Package manager: $PKG_MANAGER"
+# Note: verbose/debug info is printed after argument parsing so variables exist
+
+run_install() {
+  echo "==> Installing node dependencies (if needed)"
+  if [ "$PKG_MANAGER" = "pnpm" ]; then
+    pnpm install --frozen-lockfile || pnpm install
+  else
+    npm ci || npm install
+  fi
+}
+
+# Global flags
+VERBOSE=0
+SKIP_WEB=0
+
+vecho() {
+  if [ "$VERBOSE" -eq 1 ]; then
+    echo "$@"
+  fi
+}
+
+build_web() {
+  echo "==> Building web assets"
+  if [ "$PKG_MANAGER" = "pnpm" ]; then
+    pnpm run build
+  else
+    npm run build
+  fi
+}
+
+build_android_apk() {
+  echo "==> Building Android APK (Capacitor)"
+  cd "$ROOT_DIR"
+  # ensure web assets copied
+  npx cap sync android
+  if [ ! -d "$ANDROID_DIR" ]; then
+    echo "Android project not found at $ANDROID_DIR"
+    return 1
+  fi
+  cd "$ANDROID_DIR"
+  echo "Running gradle assembleRelease (this requires Android SDK/NDK, JDK, ANDROID_HOME set)"
+  ./gradlew assembleRelease
+  APK_DIR="$ANDROID_DIR/app/build/outputs/apk/release"
+  echo "APK: $APK_DIR"
+  mkdir -p "$BUILD_DIR/android"
+  cp -a "$APK_DIR"/* "$BUILD_DIR/android/" || true
+  echo "Copied APK(s) to $BUILD_DIR/android/"
+}
+
+build_android_aab() {
+  echo "==> Building Android AAB (bundle)"
+  cd "$ROOT_DIR"
+  npx cap sync android
+  cd "$ANDROID_DIR"
+  ./gradlew bundleRelease
+  AAB_DIR="$ANDROID_DIR/app/build/outputs/bundle/release"
+  echo "AAB: $AAB_DIR"
+  mkdir -p "$BUILD_DIR/android"
+  cp -a "$AAB_DIR"/* "$BUILD_DIR/android/" || true
+  echo "Copied AAB(s) to $BUILD_DIR/android/"
+}
+
+ensure_tauri_tools() {
+  mkdir -p "$TOOLS_DIR"
+  # small helper to download a file if missing
+  dl_if_missing() {
+    local url="$1"
+    local dest="$2"
+    if [ ! -f "$dest" ]; then
+      echo "Downloading: $url -> $dest"
+      curl -fsSL "$url" -o "$dest"
+      chmod +x "$dest" || true
+    fi
+  }
+
+  # These are the common resources Tauri tries to use for AppImage bundling.
+  # We keep them local and add to PATH so tauri/linuxdeploy can find them.
+  dl_if_missing "https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64" "$TOOLS_DIR/AppRun-x86_64"
+  dl_if_missing "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" "$TOOLS_DIR/linuxdeploy-x86_64.AppImage"
+  dl_if_missing "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" "$TOOLS_DIR/linuxdeploy-plugin-gtk.sh"
+  dl_if_missing "https://raw.githubusercontent.com/tauri-apps/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" "$TOOLS_DIR/linuxdeploy-plugin-gstreamer.sh"
+  dl_if_missing "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage" "$TOOLS_DIR/linuxdeploy-plugin-appimage-x86_64.AppImage"
+
+  # make sure PATH includes the tools dir for this script invocation
+  export PATH="$TOOLS_DIR:$PATH"
+  echo "Tauri helper tools ensured in $TOOLS_DIR (added to PATH for this shell only)"
+
+  # Create small wrapper launchers for AppImage tools to avoid failures on systems
+  # without FUSE or where AppImage isn't directly executable in this environment
+  create_appimage_wrapper() {
+    local appimg="$1"
+    local wrapper="$2"
+    if [ -f "$appimg" ]; then
+      cat > "$wrapper" <<'EOF'
+#!/usr/bin/env bash
+# Robust AppImage wrapper: try direct execution, then fallback to extraction into a temp dir
+set -euo pipefail
+APPIMAGE_PATH="$appimg"
+ARGS=("$@")
+
+# Try direct execution first
+if { exec "${APPIMAGE_PATH}" "${ARGS[@]}" 2>/dev/null; }; then
+  exit 0
 fi
 
-echo "==> Building web assets"
-$PM run build
+# Fallback: extract and run inside temporary dir (avoids FUSE requirement)
+TMPDIR="$(mktemp -d /tmp/appimage-extract.XXXXXX)"
+cleanup() {
+  rm -rf "${TMPDIR}" || true
+}
+trap cleanup EXIT
 
-detect_wsl() {
-  # return 0 if running under WSL
-  if [ -f /proc/version ] && grep -qi microsoft /proc/version; then
-    return 0
-  fi
-  return 1
+echo "[appimage-wrapper] extracting ${APPIMAGE_PATH} to ${TMPDIR}"
+"${APPIMAGE_PATH}" --appimage-extract >/dev/null 2>&1 || {
+  echo "[appimage-wrapper] failed to extract ${APPIMAGE_PATH}" >&2
+  exit 1
 }
 
-ensure_rust_target() {
-  local target="$1"
-  if rustup target list --installed | grep -q "^${target}$"; then
-    echo "Rust target ${target} already installed"
+if [ -x "${TMPDIR}/squashfs-root/AppRun" ]; then
+  echo "[appimage-wrapper] running extracted AppRun"
+  exec "${TMPDIR}/squashfs-root/AppRun" "${ARGS[@]}"
+elif [ -x "${TMPDIR}/AppRun" ]; then
+  exec "${TMPDIR}/AppRun" "${ARGS[@]}"
+else
+  echo "[appimage-wrapper] no AppRun found in extracted AppImage" >&2
+  exit 1
+fi
+EOF
+      chmod +x "$wrapper" || true
+      vecho "Created AppImage wrapper: $wrapper -> $appimg"
+    fi
+  }
+
+  # Create wrappers for the AppImage-based helpers so tauri/linuxdeploy can invoke them.
+  create_appimage_wrapper "$TOOLS_DIR/linuxdeploy-x86_64.AppImage" "$TOOLS_DIR/linuxdeploy"
+  create_appimage_wrapper "$TOOLS_DIR/linuxdeploy-plugin-appimage-x86_64.AppImage" "$TOOLS_DIR/linuxdeploy-plugin-appimage"
+
+  # Ensure shell plugins are executable
+  chmod +x "$TOOLS_DIR/linuxdeploy-plugin-gtk.sh" "$TOOLS_DIR/linuxdeploy-plugin-gstreamer.sh" || true
+}
+
+
+# Pre-flight checks for Tauri bundling on Linux. Prints hints for common distros.
+preflight_tauri_checks() {
+  vecho "Running Tauri preflight checks"
+  local missing=()
+  command -v patchelf >/dev/null 2>&1 || missing+=(patchelf)
+  command -v pkg-config >/dev/null 2>&1 || missing+=(pkg-config)
+  # libglib tooling (glib-compile-schemas) is part of libglib2.0-bin on Debian
+  command -v glib-compile-schemas >/dev/null 2>&1 || missing+=(libglib)
+  # fuse binary presence
+  command -v fusermount >/dev/null 2>&1 || command -v fuse >/dev/null 2>&1 || missing+=(fuse)
+
+  if [ ${#missing[@]} -ne 0 ]; then
+    echo "Tauri preflight: missing system dependencies: ${missing[*]}"
+    # Print distro-specific install hints when /etc/os-release is available
+    if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      case "${ID:-}" in
+        debian|ubuntu|linuxmint)
+          echo "Install with: sudo apt update && sudo apt install -y patchelf pkg-config libglib2.0-bin fuse"
+          ;;
+        fedora|rhel|centos)
+          echo "Install with: sudo dnf install -y patchelf pkgconfig glib2-utils fuse"
+          ;;
+        arch)
+          echo "Install with: sudo pacman -Syu patchelf pkgconf glib2 fuse2"
+          ;;
+        *)
+          echo "Install packages for your distro: patchelf pkg-config (or pkgconf) glib utilities (glib-compile-schemas) and fuse."
+          ;;
+      esac
+    else
+      echo "Install packages: patchelf pkg-config glib utilities (glib-compile-schemas) and fuse."
+    fi
+    return 1
+  fi
+  vecho "Tauri preflight checks passed"
+  return 0
+}
+
+
+build_tauri_linux() {
+  echo "==> Building Tauri (Linux)"
+  cd "$ROOT_DIR"
+  # ensure local linuxdeploy and friends so tauri can run them (avoids 'failed to run linuxdeploy')
+  ensure_tauri_tools
+  # Enforce preflight checks
+  mkdir -p "$BUILD_DIR/logs"
+  preflight_tauri_checks || {
+    echo "Preflight checks failed — aborting Tauri linux build. See hints above to install required system packages."
+    return 1
+  }
+
+  # The function accepts an optional param:
+  #   --all   -> try to build all supported bundles (AppImage, deb, rpm, ...)
+  #   <distro> -> request bundles for a specific distro (script will build all and then filter)
+  local subarg="${1:-}"
+  local filter_pattern=""
+
+  if [ -n "$subarg" ]; then
+    if [ "$subarg" = "--all" ] || [ "$subarg" = "all" ]; then
+      export BUILD_ALL_TAURI_BUNDLES=1
+      vecho "Requested: build all tauri bundles"
+    else
+      # treat subarg as distro name and build all bundles, then pick the one that matches
+      DISTRO_LC="$(echo "$subarg" | tr '[:upper:]' '[:lower:]')"
+      case "$DISTRO_LC" in
+        ubuntu|debian|mint)
+          filter_pattern='*.deb'
+          ;;
+        fedora|centos|rhel)
+          filter_pattern='*.rpm'
+          ;;
+        arch|manjaro)
+          # arch typically uses tar.xz or tar.gz packages for distribution
+          filter_pattern='*.tar.*'
+          ;;
+        generic|appimage)
+          filter_pattern='*.AppImage'
+          ;;
+        *)
+          vecho "Unknown distro hint: $subarg; will attempt build and copy whatever is produced"
+          filter_pattern=''
+          ;;
+      esac
+      export BUILD_ALL_TAURI_BUNDLES=1
+    fi
   else
-    echo "Adding Rust target ${target}"
-    rustup target add "${target}"
+    # default behaviour: respect BUILD_ALL_TAURI_BUNDLES env if set externally, otherwise prefer distro-default
+    export BUILD_ALL_TAURI_BUNDLES="${BUILD_ALL_TAURI_BUNDLES:-0}"
+    if [ "$BUILD_ALL_TAURI_BUNDLES" -eq 0 ]; then
+      # try to detect distro for informational purposes
+      if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        vecho "Detected distro: ${ID:-unknown} (${ID_LIKE:-})"
+      else
+        vecho "Could not detect distro (/etc/os-release not present)"
+      fi
+    fi
+  fi
+
+  vecho "BUILD_ALL_TAURI_BUNDLES=$BUILD_ALL_TAURI_BUNDLES"
+
+  # Build targeting the native Linux triple. Capture detailed logs for debugging.
+  LOG1="$BUILD_DIR/logs/tauri-linux-build-1.log"
+  LOG2="$BUILD_DIR/logs/tauri-linux-build-2-fallback.log"
+
+  echo "Running tauri build (attempt 1) — logs: $LOG1"
+  if ! npx tauri build --target x86_64-unknown-linux-gnu 2>&1 | tee "$LOG1"; then
+    echo "Tauri build failed on attempt 1. Will retry with BUILD_ALL_TAURI_BUNDLES=0 (fallback). See $LOG1 for details."
+    export BUILD_ALL_TAURI_BUNDLES=0
+    echo "Running tauri build (attempt 2 - fallback) — logs: $LOG2"
+    if ! npx tauri build --target x86_64-unknown-linux-gnu 2>&1 | tee "$LOG2"; then
+      echo "Tauri build failed on fallback as well. See logs: $LOG1 and $LOG2"
+      return 1
+    fi
+  fi
+
+  BUNDLE_DIR="$TAURI_DIR/target/release/bundle"
+  echo "Tauri bundles: $BUNDLE_DIR"
+  if [ -d "$BUNDLE_DIR" ]; then
+    mkdir -p "$BUILD_DIR/tauri/linux"
+    if [ -n "$filter_pattern" ]; then
+      # copy only matching files (filter pattern may include shell glob chars)
+      shopt_saved=$(set +o)
+      # use cp with glob; fallback to copying everything if nothing matches
+      matches=$(ls $BUNDLE_DIR/ 2>/dev/null | grep -E "$(echo "$filter_pattern" | sed 's/\./\\./g; s/\*/.*/g')" || true)
+      if [ -n "$matches" ]; then
+        cp -a $BUNDLE_DIR/$filter_pattern "$BUILD_DIR/tauri/linux/" || true
+        echo "Copied filtered Tauri Linux bundles ($filter_pattern) to $BUILD_DIR/tauri/linux/"
+      else
+        echo "No bundles matching pattern '$filter_pattern' found; copying all bundles instead"
+        cp -a "$BUNDLE_DIR"/* "$BUILD_DIR/tauri/linux/" || true
+        echo "Copied Tauri Linux bundles to $BUILD_DIR/tauri/linux/"
+      fi
+      eval "$shopt_saved" || true
+    else
+      cp -a "$BUNDLE_DIR"/* "$BUILD_DIR/tauri/linux/" || true
+      echo "Copied Tauri Linux bundles to $BUILD_DIR/tauri/linux/"
+    fi
   fi
 }
 
-case "${1:-}" in
+build_tauri_windows() {
+  echo "==> Building Tauri (Windows)"
+  # Cross-building for Windows on Linux is complex (MSVC toolchain needed) — prefer building on native Windows.
+  if [ "$(uname -s | tr '[:upper:]' '[:lower:]')" != "mingw"* ] && [ "$(uname -s | tr '[:upper:]' '[:lower:]')" != "cygwin"* ] && [ "$(uname -s)" != "Windows_NT" ]; then
+    echo "Note: you are not on Windows. Building Windows installers on Linux requires a cross toolchain or a Windows build environment."
+    echo "Recommended options:"
+    echo " - Build on a Windows machine (run: pnpm run build && npx tauri build --target x86_64-pc-windows-msvc)"
+    echo " - Use CI (GitHub Actions with windows-latest) to produce Windows artifacts"
+    echo "Attempting a best-effort build (may fail):"
+    # this will likely fail if MSVC toolchain isn't present
+    npx tauri build --target x86_64-pc-windows-gnu || {
+      echo "Windows build attempt failed. Build on Windows or configure cross toolchain (MSVC)."
+      return 1
+    }
+  else
+    # On Windows environment
+    npx tauri build --target x86_64-pc-windows-msvc
+  fi
+
+  W_BUNDLE_DIR="$TAURI_DIR/target/release/bundle"
+  echo "Windows bundles: $W_BUNDLE_DIR"
+  if [ -d "$W_BUNDLE_DIR" ]; then
+    mkdir -p "$BUILD_DIR/tauri/windows"
+    cp -a "$W_BUNDLE_DIR"/* "$BUILD_DIR/tauri/windows/" || true
+    echo "Copied Tauri Windows bundles to $BUILD_DIR/tauri/windows/"
+  fi
+}
+
+print_usage() {
+  cat <<'EOF'
+Usage: build-native.sh [OPTIONS] <target>
+
+Options:
+  -h, --help      Show this help and exit
+
+Targets:
+  android-apk     Build an Android APK using Capacitor/Gradle (requires Android SDK/JDK/ANDROID_HOME)
+  android-aab     Build an Android App Bundle (AAB) using Gradle (requires Android SDK/JDK/ANDROID_HOME)
+  tauri-linux     Build Tauri desktop bundles for Linux (AppImage/deb/rpm where supported)
+  tauri-windows   Build Tauri desktop bundles for Windows (prefer building on Windows/CI)
+  all             Run web build and attempt all platform builds; collects artifacts under .build/
+
+Notes / prerequisites (short):
+  - Node toolchain: pnpm (preferred) or npm
+  - Capacitor Android: Android SDK, JDK, ANDROID_HOME set in environment
+  - Tauri: Rust (stable), system deps (libgtk, libglib, patchelf, fuse on some distros)
+  - Windows installer: building on Windows or CI is recommended (MSVC toolchain)
+
+Examples:
+  ./scripts/build-native.sh android-apk
+  ./scripts/build-native.sh tauri-linux
+  ./scripts/build-native.sh all
+
+For more detailed troubleshooting tips, open the script and read the comments near the tauri build helpers.
+EOF
+}
+
+# Parse flags (support short and long options) using getopt so flags may appear anywhere.
+## Portable flag parsing: accept global flags anywhere and leave unknown args intact
+new_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      print_usage
+      exit 0
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -s|--skip-web)
+      SKIP_WEB=1
+      shift
+      ;;
+    --)
+      shift
+      while [ $# -gt 0 ]; do new_args+=("$1"); shift; done
+      break
+      ;;
+    -*)
+      # Unknown global option: fail
+      echo "Unknown global option: $1"
+      print_usage
+      exit 2
+      ;;
+    *)
+      new_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Restore remaining args (first non-option is target)
+set -- "${new_args[@]:-}"
+main_target="${1:-}"
+shift || true
+target_args=("$@")
+
+if [ -z "$main_target" ]; then
+  print_usage
+  exit 2
+fi
+
+case "$main_target" in
   android-apk)
-    echo "==> Syncing Capacitor and building Android APK"
-    npx cap sync android
-    cd android
-    # Debug: ./gradlew assembleDebug
-    ./gradlew assembleRelease
-    echo "APK should be at: android/app/build/outputs/apk/release/"
+    run_install
+    if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
+    build_android_apk
     ;;
 
   android-aab)
-    echo "==> Syncing Capacitor and building Android AAB (bundle)"
-    npx cap sync android
-    cd android
-    ./gradlew bundleRelease
-    echo "AAB should be at: android/app/build/outputs/bundle/release/"
+    run_install
+    if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
+    build_android_aab
     ;;
 
   tauri-linux)
-    echo "==> Building Tauri (Linux) - bundles in src-tauri/target/release/bundle/"
-    # Use npx to run the local tauri cli
-    npx tauri build --target x86_64-unknown-linux-gnu
-    echo "Bundles: src-tauri/target/release/bundle/"
+    run_install
+    if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
+    build_tauri_linux "${target_args[@]}"
     ;;
 
   tauri-windows)
-    echo "==> Building Tauri (Windows) - will choose an appropriate Rust target based on environment"
-    if detect_wsl; then
-      echo "Detected WSL environment — building Windows GNU target (x86_64-pc-windows-gnu)."
-      ensure_rust_target x86_64-pc-windows-gnu
-      npx tauri build --target x86_64-pc-windows-gnu
-    else
-      # try to detect if running on Windows (MINGW/Cygwin) via OSTYPE or uname
-      OS_NAME=$(uname -s 2>/dev/null || echo unknown)
-      if echo "$OS_NAME" | grep -qi "mingw\|cygwin\|msys"; then
-        echo "Detected Windows-like environment ($OS_NAME) — using MSVC target (x86_64-pc-windows-msvc)."
-        ensure_rust_target x86_64-pc-windows-msvc
-        npx tauri build --target x86_64-pc-windows-msvc
-      else
-        echo "Not on Windows or WSL; attempting MSVC target but this will likely fail unless MSVC toolchain is installed."
-        echo "If you want a GNU Windows build, run this script on WSL or install mingw and use x86_64-pc-windows-gnu."
-        ensure_rust_target x86_64-pc-windows-msvc || true
-        npx tauri build --target x86_64-pc-windows-msvc
-      fi
+    run_install
+    if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
+    build_tauri_windows "${target_args[@]}"
+    ;;
+
+  all)
+    run_install
+    build_web
+    # copy web assets
+    if [ -d "$ROOT_DIR/dist" ]; then
+      mkdir -p "$BUILD_DIR/web"
+      cp -a "$ROOT_DIR/dist"/* "$BUILD_DIR/web/" || true
+      echo "Copied web assets to $BUILD_DIR/web/"
     fi
-    echo "Windows bundles: src-tauri/target/release/bundle/"
+
+    build_android_apk || true
+    build_android_aab || true
+    build_tauri_linux || true
+    build_tauri_windows || true
+
+    # iOS sync (only sync; IPA creation must be done on macOS/Xcode)
+    if command -v npx >/dev/null 2>&1; then
+      npx cap sync ios || true
+      echo "iOS project synced; open Xcode to build the ipa."
+    fi
+    echo "All build artifacts (collected) are available under $BUILD_DIR"
     ;;
 
   *)
-    echo "Usage: $0 {android-apk|android-aab|tauri-linux|tauri-windows}"
+    print_usage
     exit 2
     ;;
 esac

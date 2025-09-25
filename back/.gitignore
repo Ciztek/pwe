@@ -2,3 +2,25 @@ app.db
 __pycache__
 .env.dev
 config.toml
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+# Virtual envs
+.venv/
+venv/
+.env
+# Packaging / build
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+__pypackages__/
+# IDE
+.vscode/
+.idea/
+.DS_Store

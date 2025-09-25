@@ -11,3 +11,18 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# Xcode
+*/build/
+DerivedData/
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+# CocoaPods
+Pods/
+# Fastlane / signing
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+# Archives
+*.xcarchive

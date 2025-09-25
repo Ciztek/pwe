@@ -16,10 +16,12 @@ export async function openExternal(url: string) {
 	}
 
 	if (isCapacitor()) {
-		// @ts-expect-error
-		const { Browser } = await import("@capacitor/browser");
-		// @ts-expect-error
-		await Browser.open({ url });
+		const capBrowser = (await import("@capacitor/browser")) as unknown as {
+			Browser?: { open: (opts: { url: string }) => Promise<void> };
+		};
+		if (capBrowser.Browser && typeof capBrowser.Browser.open === "function") {
+			await capBrowser.Browser.open({ url });
+		}
 		return;
 	}
 

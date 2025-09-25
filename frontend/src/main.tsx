@@ -11,30 +11,31 @@ function initPlatform() {
 
 		if (isCapacitor()) {
 			// defer dynamic import until runtime; hide splashscreen if available
-			// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-			// @ts-expect-error
 			import("@capacitor/core")
-				.then((cap) => {
+				.then((capModule) => {
+					// Narrow the expected shape so we avoid blanket 'any' casts
+					type CapacitorLike = {
+						SplashScreen?: {
+							hide?: () => void;
+						};
+					};
+					const cap = capModule as unknown as CapacitorLike;
 					try {
 						// Capacitor splash screen plugin may be available
-						// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-						// @ts-expect-error
 						if (
 							cap &&
 							cap.SplashScreen &&
 							typeof cap.SplashScreen.hide === "function"
 						) {
-							// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-							// @ts-expect-error
 							cap.SplashScreen.hide();
 						}
-					} catch (e) {
-						// ignore
+					} catch {
+						// ignore runtime errors
 					}
 				})
 				.catch(() => {});
 		}
-	} catch (e) {
+	} catch {
 		// ignore
 	}
 }

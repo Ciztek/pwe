@@ -99,3 +99,21 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# Android Studio / Gradle
+.gradle/
+local.properties
+/.idea/
+/build/
+**/build/
+captures/
+# Keystore files (should not be committed)
+*.jks
+*.keystore
+# Generated APKs and bundler outputs
+app/build/
+app/*.apk
+app/*.aab
+# Misc
+.externalNativeBuild/
+.cxx/
