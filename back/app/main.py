@@ -1,4 +1,5 @@
 import sys
+import time
 from contextlib import asynccontextmanager
 from csv import DictReader
 from datetime import date, timedelta
@@ -8,7 +9,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .api.routes import routers
@@ -25,66 +26,81 @@ settings = get_package_config(__package__, Config)
 
 
 async def fill_db(db: AsyncSession):
+    # Enable WAL mode for faster inserts
+    await db.execute(text("PRAGMA journal_mode=WAL;"))
+
     start_date = date(2021, 1, 1)
     end_date = date(2023, 3, 9)
     current = start_date
+
+    result = await db.execute(select(CovidData.date).distinct())
+    existing_dates = {row for row in result.scalars().all()}
+
+    batch_size = 30
+    file_count = 0
+
     while current <= end_date:
+        if current in existing_dates:
+            current += timedelta(days=1)
+            continue
+
         date_str = current.strftime("%m-%d-%Y")
         csv_path = Path(
             settings.data_path
             + f"/csse_covid_19_data/csse_covid_19_daily_reports/{date_str}.csv"
         )
-        print(f"Processing {csv_path.absolute().resolve()}")
-        result = await db.execute(
-            select(CovidData).where(CovidData.date == current)
-        )
-        existing = result.scalars().first()
-        if existing:
-            current += timedelta(days=1)
-            continue
         if csv_path.exists():
             with open(csv_path, newline="", encoding="utf-8") as f:
-
                 reader = DictReader(f)
-                records = [
-                    CovidData(
-                        date=current,
-                        us_county_id=record.get("FIPS"),
-                        us_county_name=record.get("Admin2"),
-                        province=record.get("Province_State")
-                        or record.get("Province/State")
-                        or "",
-                        country=record.get("Country_Region")
-                        or record.get("Country/Region")
-                        or "",
-                        confirmed=int(record.get("Confirmed") or 0),
-                        deaths=int(record.get("Deaths") or 0),
-                        recovered=(
-                            int(record.get("Recovered") or 0)
-                            if record.get("Recovered") not in (None, "")
+                dict_records = [
+                    {
+                        "date": current,
+                        "us_county_id": r.get("FIPS") or None,
+                        "us_county_name": r.get("Admin2") or None,
+                        "province": r.get("Province_State")
+                        or r.get("Province/State")
+                        or None,
+                        "country": r.get("Country_Region")
+                        or r.get("Country/Region"),
+                        "confirmed": int(r.get("Confirmed") or 0),
+                        "deaths": int(r.get("Deaths") or 0),
+                        "recovered": (
+                            int(r.get("Recovered") or 0)
+                            if r.get("Recovered") not in (None, "")
                             else None
                         ),
-                        active=(
-                            int(record.get("Active") or 0)
-                            if record.get("Active") not in (None, "")
+                        "active": (
+                            int(r.get("Active") or 0)
+                            if r.get("Active") not in (None, "")
                             else None
                         ),
-                        incident_rate=(
-                            float(record.get("Incident_Rate") or 0)
-                            if record.get("Incident_Rate") not in (None, "")
+                        "incident_rate": (
+                            float(r.get("Incident_Rate") or 0)
+                            if r.get("Incident_Rate") not in (None, "")
                             else None
                         ),
-                        case_fatality_ratio=(
-                            float(record.get("Case_Fatality_Ratio") or 0)
-                            if record.get("Case_Fatality_Ratio")
-                            not in (None, "")
+                        "case_fatality_ratio": (
+                            float(r.get("Case_Fatality_Ratio") or 0)
+                            if r.get("Case_Fatality_Ratio") not in (None, "")
                             else None
                         ),
-                    )
-                    for record in reader
+                    }
+                    for r in reader
                 ]
-                db.add_all(records)
+
+                if dict_records:
+                    await db.run_sync(
+                        lambda s: s.bulk_insert_mappings(
+                            CovidData.__mapper__, dict_records
+                        )
+                    )
+
+        file_count += 1
+        if file_count % batch_size == 0:
+            await db.commit()
+
         current += timedelta(days=1)
+
     await db.commit()
 
 
@@ -92,7 +108,10 @@ async def fill_db(db: AsyncSession):
 async def lifespan(_: FastAPI):
     await init_db()
     async with async_session() as db:
+        start = time.perf_counter()
         await fill_db(db)
+        end = time.perf_counter()
+        print(f"DB filled in {end - start:.2f} seconds")
     yield
 
 
