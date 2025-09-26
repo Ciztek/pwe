@@ -9,7 +9,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .api.routes import routers
@@ -26,9 +26,6 @@ settings = get_package_config(__package__, Config)
 
 
 async def fill_db(db: AsyncSession):
-    # Enable WAL mode for faster inserts
-    await db.execute(text("PRAGMA journal_mode=WAL;"))
-
     start_date = date(2021, 1, 1)
     end_date = date(2023, 3, 9)
     current = start_date
