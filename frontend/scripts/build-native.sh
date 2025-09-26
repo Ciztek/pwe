@@ -52,9 +52,55 @@ build_web() {
   fi
 }
 
+# --- Android JDK 17 helpers ---
+find_java17_home() {
+  # If JAVA_HOME is set and points to a Java 17, prefer it
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    local v
+    v="$("$JAVA_HOME/bin/java" -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')"
+    case "$v" in
+      17*|1.17.*) echo "$JAVA_HOME"; return 0 ;;
+    esac
+  fi
+  # Common locations on Ubuntu and other distros
+  for p in \
+    /usr/lib/jvm/java-17-openjdk-amd64 \
+    /usr/lib/jvm/java-17-openjdk \
+    /usr/lib/jvm/temurin-17-jdk-amd64 \
+    /usr/lib/jvm/temurin-17-jdk \
+    /usr/lib/jvm/zulu-17-amd64 \
+    /usr/lib/jvm/*-17-* \
+    ; do
+    if [ -d "$p" ] && [ -x "$p/bin/java" ]; then
+      local v
+      v="$("$p/bin/java" -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')"
+      case "$v" in
+        17*|1.17.*) echo "$p"; return 0 ;;
+      esac
+    fi
+  done
+  return 1
+}
+
+ensure_java17() {
+  local JH
+  if ! JH="$(find_java17_home)"; then
+    echo "Android Gradle plugin requires Java 17. Current: $(java -version 2>&1 | head -n1 || echo 'java not found')"
+    echo "Install on Ubuntu: sudo apt update && sudo apt install -y openjdk-17-jdk"
+    echo "Then re-run the build."
+    return 1
+  fi
+  export ORG_GRADLE_JAVA_HOME="$JH"
+  export JAVA_HOME="$JH"
+  export PATH="$JH/bin:$PATH"
+  vecho "Using JDK 17 at: $JH"
+  return 0
+}
+
 build_android_apk() {
   echo "==> Building Android APK (Capacitor)"
   cd "$ROOT_DIR"
+  ensure_java17 || return 1
   # ensure web assets copied
   npx cap sync android
   if [ ! -d "$ANDROID_DIR" ]; then
@@ -67,21 +113,32 @@ build_android_apk() {
   APK_DIR="$ANDROID_DIR/app/build/outputs/apk/release"
   echo "APK: $APK_DIR"
   mkdir -p "$BUILD_DIR/android"
-  cp -a "$APK_DIR"/* "$BUILD_DIR/android/" || true
-  echo "Copied APK(s) to $BUILD_DIR/android/"
+  shopt -s nullglob; files=("$APK_DIR"/*); shopt -u nullglob
+  if [ ${#files[@]} -gt 0 ]; then
+    cp -a "$APK_DIR"/* "$BUILD_DIR/android/" || true
+    echo "Copied APK(s) to $BUILD_DIR/android/"
+  else
+    echo "No APKs found in $APK_DIR (build likely failed)."
+  fi
 }
 
 build_android_aab() {
   echo "==> Building Android AAB (bundle)"
   cd "$ROOT_DIR"
+  ensure_java17 || return 1
   npx cap sync android
   cd "$ANDROID_DIR"
   ./gradlew bundleRelease
   AAB_DIR="$ANDROID_DIR/app/build/outputs/bundle/release"
   echo "AAB: $AAB_DIR"
   mkdir -p "$BUILD_DIR/android"
-  cp -a "$AAB_DIR"/* "$BUILD_DIR/android/" || true
-  echo "Copied AAB(s) to $BUILD_DIR/android/"
+  shopt -s nullglob; files=("$AAB_DIR"/*); shopt -u nullglob
+  if [ ${#files[@]} -gt 0 ]; then
+    cp -a "$AAB_DIR"/* "$BUILD_DIR/android/" || true
+    echo "Copied AAB(s) to $BUILD_DIR/android/"
+  else
+    echo "No AABs found in $AAB_DIR (build likely failed)."
+  fi
 }
 
 ensure_tauri_tools() {
@@ -175,6 +232,10 @@ preflight_tauri_checks() {
   # fuse binary presence
   command -v fusermount >/dev/null 2>&1 || command -v fuse >/dev/null 2>&1 || missing+=(fuse)
 
+  # Rust toolchain required for tauri builds
+  command -v cargo >/dev/null 2>&1 || missing+=(cargo)
+  command -v rustc >/dev/null 2>&1 || missing+=(rustc)
+
   if [ ${#missing[@]} -ne 0 ]; then
     echo "Tauri preflight: missing system dependencies: ${missing[*]}"
     # Print distro-specific install hints when /etc/os-release is available
@@ -197,9 +258,18 @@ preflight_tauri_checks() {
     else
       echo "Install packages: patchelf pkg-config glib utilities (glib-compile-schemas) and fuse."
     fi
-    return 1
+      return 1
   fi
   vecho "Tauri preflight checks passed"
+    # Quick runtime sanity check: try running `cargo metadata` inside tauri dir to surface permission errors
+    if command -v cargo >/dev/null 2>&1; then
+      if ! (cd "$TAURI_DIR" && cargo metadata --format-version 1 --no-deps >/dev/null 2>&1); then
+        echo "Warning: 'cargo metadata' failed when run in $TAURI_DIR. This often indicates missing Rust toolchain components or permission issues."
+        echo "Run: cd $TAURI_DIR && cargo metadata --format-version 1 --no-deps to see the error."
+        echo "Install Rust (rustup) or use Nix to provide cargo/rustc. Example: 'curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh' or 'nix shell nixpkgs#rustc nixpkgs#cargo --run "./scripts/build-native.sh tauri-linux"'"
+        return 1
+      fi
+    fi
   return 0
 }
 
@@ -315,11 +385,17 @@ build_tauri_windows() {
     echo " - Build on a Windows machine (run: pnpm run build && npx tauri build --target x86_64-pc-windows-msvc)"
     echo " - Use CI (GitHub Actions with windows-latest) to produce Windows artifacts"
     echo "Attempting a best-effort build (may fail):"
-    # this will likely fail if MSVC toolchain isn't present
-    npx tauri build --target x86_64-pc-windows-gnu || {
-      echo "Windows build attempt failed. Build on Windows or configure cross toolchain (MSVC)."
-      return 1
-    }
+    # Prefer system NSIS (Linux makensis) if available to avoid trying to run makensis.exe
+    if command -v makensis >/dev/null 2>&1; then
+      export TAURI_BUNDLER_NSIS_BIN="$(command -v makensis)"
+      vecho "Using system NSIS: $TAURI_BUNDLER_NSIS_BIN"
+    else
+      echo "NSIS 'makensis' not found. Installer bundling may fail. Install with: sudo apt install -y nsis"
+    fi
+    # Try to build; even if bundling fails (makensis/msi), still copy the .exe
+    if ! npx tauri build --target x86_64-pc-windows-gnu; then
+      echo "Windows bundling failed — will try to collect built .exe if available."
+    fi
   else
     # On Windows environment
     npx tauri build --target x86_64-pc-windows-msvc
@@ -328,9 +404,31 @@ build_tauri_windows() {
   W_BUNDLE_DIR="$TAURI_DIR/target/release/bundle"
   echo "Windows bundles: $W_BUNDLE_DIR"
   if [ -d "$W_BUNDLE_DIR" ]; then
-    mkdir -p "$BUILD_DIR/tauri/windows"
-    cp -a "$W_BUNDLE_DIR"/* "$BUILD_DIR/tauri/windows/" || true
-    echo "Copied Tauri Windows bundles to $BUILD_DIR/tauri/windows/"
+    # Copy only the Windows installer(s) (NSIS) into .build, not the application exe
+    installers=()
+    if [ -d "$W_BUNDLE_DIR/nsis" ]; then
+      # Prefer *setup*.exe naming produced by NSIS bundler
+      while IFS= read -r -d '' f; do installers+=("$f"); done < <(find "$W_BUNDLE_DIR/nsis" -maxdepth 1 -type f -name "*setup*.exe" -print0)
+      # Fallback: any .exe under nsis dir
+      if [ ${#installers[@]} -eq 0 ]; then
+        while IFS= read -r -d '' f; do installers+=("$f"); done < <(find "$W_BUNDLE_DIR/nsis" -maxdepth 1 -type f -name "*.exe" -print0)
+      fi
+    fi
+    # Fallback: search anywhere under bundle for *setup*.exe
+    if [ ${#installers[@]} -eq 0 ]; then
+      while IFS= read -r -d '' f; do installers+=("$f"); done < <(find "$W_BUNDLE_DIR" -type f -name "*setup*.exe" -print0)
+    fi
+
+    if [ ${#installers[@]} -gt 0 ]; then
+      mkdir -p "$BUILD_DIR/tauri/windows"
+      for f in "${installers[@]}"; do
+        cp -a "$f" "$BUILD_DIR/tauri/windows/" || true
+      done
+      echo "Copied Windows installer(s) to $BUILD_DIR/tauri/windows/"
+    else
+      echo "No Windows installer (.exe) found in $W_BUNDLE_DIR. Ensure NSIS bundling succeeded."
+      echo "Tip: on Linux, install NSIS (sudo apt install -y nsis) or build on Windows/MSVC."
+    fi
   fi
 }
 

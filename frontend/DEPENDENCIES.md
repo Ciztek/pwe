@@ -45,7 +45,7 @@ Rust targets to consider (install with `rustup target add`):
 - `x86_64-pc-windows-msvc` (Windows MSVC; requires Visual Studio C++ toolchain on Windows)
 - `x86_64-pc-windows-gnu` (Windows GNU / mingw, useful for cross-building from WSL)
 
-- OpenJDK 11 or 17 (for Android / Gradle builds).
+- OpenJDK 17 (required by modern Android Gradle Plugin). Older AGP versions worked with 11, but current project requires 17.
 - Android SDK & command-line tools:
   - `android-sdk`, `platform-tools`, `build-tools` (matching compileSdk)
   - Ensure `ANDROID_HOME` / `ANDROID_SDK_ROOT` set in environment and tools on PATH.
@@ -84,3 +84,58 @@ Rust targets to consider (install with `rustup target add`):
 - For building Windows bundles, prefer building on a native Windows host with MSVC installed. If building from Linux/WSL, install `mingw-w64` and use `x86_64-pc-windows-gnu` target — note linking toolchain differences.
 - Android SDK is large: consider documenting a CI image (or using an official Android builder image) rather than packaging the entire SDK inside the flake.
 - macOS / Xcode cannot be provided from Linux via Nix; document iOS build steps as macOS-only.
+
+---
+
+## Global setup (Ubuntu, non‑Nix)
+
+If you prefer installing globally on Ubuntu instead of using Nix, these packages cover the common needs for this repo:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget git unzip xz-utils \
+  ca-certificates gnupg lsb-release software-properties-common
+
+# Node 20 LTS and pnpm
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g pnpm
+
+# Java 17 for Android Gradle
+sudo apt install -y openjdk-17-jdk
+
+# Tauri/Linux packaging requirements
+sudo apt install -y patchelf pkg-config libglib2.0-bin bsdtar xz-utils fuse3 fakeroot rpm libssl-dev \
+  libgtk-3-dev libwebkit2gtk-4.0-dev
+
+# Windows cross toolchain (GNU)
+sudo apt install -y mingw-w64
+
+# Rust toolchain (user-local)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+rustup default stable
+rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-gnu
+
+# Android SDK (manual via commandline-tools)
+export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+mkdir -p "$ANDROID_SDK_ROOT"
+cd /tmp && curl -LO "https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip"
+unzip commandlinetools-linux-9477386_latest.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+mv "$ANDROID_SDK_ROOT/cmdline-tools/"cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/" || true
+export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+yes | sdkmanager --sdk_root="$ANDROID_SDK_ROOT" --licenses
+sdkmanager --sdk_root="$ANDROID_SDK_ROOT" "platform-tools" "platforms;android-33" \
+  "build-tools;33.0.2" "ndk;25.2.9519653"
+```
+
+Add to your shell rc to persist:
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
+export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$JAVA_HOME/bin:$PATH"
+```
