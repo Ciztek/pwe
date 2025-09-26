@@ -52,55 +52,67 @@ build_web() {
   fi
 }
 
-# --- Android JDK 17 helpers ---
-find_java17_home() {
-  # If JAVA_HOME is set and points to a Java 17, prefer it
+# --- Android JDK helpers (prefer JDK 21, fallback to 17) ---
+find_java_home_by_major() {
+  local major="$1"
+  # If JAVA_HOME is set and matches the desired major, use it
   if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
     local v
     v="$("$JAVA_HOME/bin/java" -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')"
     case "$v" in
-      17*|1.17.*) echo "$JAVA_HOME"; return 0 ;;
+      ${major}*|1.${major}.*) echo "$JAVA_HOME"; return 0 ;;
     esac
   fi
   # Common locations on Ubuntu and other distros
-  for p in \
-    /usr/lib/jvm/java-17-openjdk-amd64 \
-    /usr/lib/jvm/java-17-openjdk \
-    /usr/lib/jvm/temurin-17-jdk-amd64 \
-    /usr/lib/jvm/temurin-17-jdk \
-    /usr/lib/jvm/zulu-17-amd64 \
-    /usr/lib/jvm/*-17-* \
-    ; do
+  local candidates=(
+    "/usr/lib/jvm/java-${major}-openjdk-amd64"
+    "/usr/lib/jvm/java-${major}-openjdk"
+    "/usr/lib/jvm/temurin-${major}-jdk-amd64"
+    "/usr/lib/jvm/temurin-${major}-jdk"
+    "/usr/lib/jvm/zulu-${major}-amd64"
+  )
+  # Add wildcard as last resort
+  candidates+=(/usr/lib/jvm/*-${major}-*)
+  for p in "${candidates[@]}"; do
     if [ -d "$p" ] && [ -x "$p/bin/java" ]; then
       local v
       v="$("$p/bin/java" -version 2>&1 | awk -F '"' '/version/ {print $2; exit}')"
       case "$v" in
-        17*|1.17.*) echo "$p"; return 0 ;;
+        ${major}*|1.${major}.*) echo "$p"; return 0 ;;
       esac
     fi
   done
   return 1
 }
 
-ensure_java17() {
+ensure_android_jdk() {
   local JH
-  if ! JH="$(find_java17_home)"; then
-    echo "Android Gradle plugin requires Java 17. Current: $(java -version 2>&1 | head -n1 || echo 'java not found')"
-    echo "Install on Ubuntu: sudo apt update && sudo apt install -y openjdk-17-jdk"
-    echo "Then re-run the build."
-    return 1
+  if JH="$(find_java_home_by_major 21)"; then
+    export ORG_GRADLE_JAVA_HOME="$JH"
+    export JAVA_HOME="$JH"
+    export PATH="$JH/bin:$PATH"
+    vecho "Using JDK 21 at: $JH"
+    return 0
   fi
-  export ORG_GRADLE_JAVA_HOME="$JH"
-  export JAVA_HOME="$JH"
-  export PATH="$JH/bin:$PATH"
-  vecho "Using JDK 17 at: $JH"
-  return 0
+  echo "Android build requires JDK 21. Current: $(java -version 2>&1 | head -n1 || echo 'java not found')"
+  echo "Install on Ubuntu: sudo apt update && sudo apt install -y openjdk-21-jdk"
+  echo "Then re-run the build."
+  return 1
 }
 
 build_android_apk() {
   echo "==> Building Android APK (Capacitor)"
   cd "$ROOT_DIR"
-  ensure_java17 || return 1
+  # Load local signing env if present (not committed)
+  if [ -f "$ANDROID_DIR/keystore.env" ]; then
+    # shellcheck disable=SC1090
+    . "$ANDROID_DIR/keystore.env"
+    # Ensure variables are exported for Gradle (System.getenv)
+    for __v in EPICOVID_STORE_FILE EPICOVID_STORE_PASSWORD EPICOVID_KEY_ALIAS EPICOVID_KEY_PASSWORD; do
+      if [ -n "${!__v:-}" ]; then export "${__v}"; fi
+    done
+  fi
+  ensure_android_jdk || return 1
   # ensure web assets copied
   npx cap sync android
   if [ ! -d "$ANDROID_DIR" ]; then
@@ -109,6 +121,7 @@ build_android_apk() {
   fi
   cd "$ANDROID_DIR"
   echo "Running gradle assembleRelease (this requires Android SDK/NDK, JDK, ANDROID_HOME set)"
+  ./gradlew --stop || true
   ./gradlew assembleRelease
   APK_DIR="$ANDROID_DIR/app/build/outputs/apk/release"
   echo "APK: $APK_DIR"
@@ -117,6 +130,13 @@ build_android_apk() {
   if [ ${#files[@]} -gt 0 ]; then
     cp -a "$APK_DIR"/* "$BUILD_DIR/android/" || true
     echo "Copied APK(s) to $BUILD_DIR/android/"
+    if [ -z "${EPICOVID_STORE_FILE:-}" ] || [ -z "${EPICOVID_STORE_PASSWORD:-}" ] || [ -z "${EPICOVID_KEY_ALIAS:-}" ] || [ -z "${EPICOVID_KEY_PASSWORD:-}" ]; then
+      echo "Note: Release APK likely unsigned (signing env vars not set). Set:"
+      echo "  EPICOVID_STORE_FILE, EPICOVID_STORE_PASSWORD, EPICOVID_KEY_ALIAS, EPICOVID_KEY_PASSWORD"
+      echo "Then re-run: ./scripts/build-native.sh android-apk -s"
+    else
+      echo "Release APK should be signed using provided keystore env vars."
+    fi
   else
     echo "No APKs found in $APK_DIR (build likely failed)."
   fi
@@ -125,7 +145,11 @@ build_android_apk() {
 build_android_aab() {
   echo "==> Building Android AAB (bundle)"
   cd "$ROOT_DIR"
-  ensure_java17 || return 1
+  if [ -f "$ANDROID_DIR/keystore.env" ]; then
+    # shellcheck disable=SC1090
+    . "$ANDROID_DIR/keystore.env"
+  fi
+  ensure_android_jdk || return 1
   npx cap sync android
   cd "$ANDROID_DIR"
   ./gradlew bundleRelease
@@ -138,6 +162,25 @@ build_android_aab() {
     echo "Copied AAB(s) to $BUILD_DIR/android/"
   else
     echo "No AABs found in $AAB_DIR (build likely failed)."
+  fi
+}
+
+build_android_apk_debug() {
+  echo "==> Building Android APK (Debug)"
+  cd "$ROOT_DIR"
+  ensure_android_jdk || return 1
+  npx cap sync android
+  cd "$ANDROID_DIR"
+  echo "Running gradle assembleDebug"
+  ./gradlew --stop || true
+  ./gradlew assembleDebug
+  local DBG_APK="$ANDROID_DIR/app/build/outputs/apk/debug/app-debug.apk"
+  if [ -f "$DBG_APK" ]; then
+    mkdir -p "$BUILD_DIR/android"
+    cp -a "$DBG_APK" "$BUILD_DIR/android/" || true
+    echo "Copied debug APK to $BUILD_DIR/android/"
+  else
+    echo "Debug APK not found at $DBG_APK"
   fi
 }
 
@@ -176,37 +219,40 @@ ensure_tauri_tools() {
 #!/usr/bin/env bash
 # Robust AppImage wrapper: try direct execution, then fallback to extraction into a temp dir
 set -euo pipefail
-APPIMAGE_PATH="$appimg"
-ARGS=("$@")
+APPIMAGE_PATH="__APPIMAGE_PATH__"
 
-# Try direct execution first
-if { exec "${APPIMAGE_PATH}" "${ARGS[@]}" 2>/dev/null; }; then
-  exit 0
-fi
+# Try direct execution first (guard errors without exiting due to set -e)
+set +e
+"${APPIMAGE_PATH}" "$@"
+code=$?
+set -e
+if [ $code -eq 0 ]; then exit 0; fi
 
 # Fallback: extract and run inside temporary dir (avoids FUSE requirement)
-TMPDIR="$(mktemp -d /tmp/appimage-extract.XXXXXX)"
+TMPDIR="\$(mktemp -d /tmp/appimage-extract.XXXXXX)"
 cleanup() {
-  rm -rf "${TMPDIR}" || true
+  rm -rf "\${TMPDIR}" || true
 }
 trap cleanup EXIT
 
-echo "[appimage-wrapper] extracting ${APPIMAGE_PATH} to ${TMPDIR}"
-"${APPIMAGE_PATH}" --appimage-extract >/dev/null 2>&1 || {
-  echo "[appimage-wrapper] failed to extract ${APPIMAGE_PATH}" >&2
+echo "[appimage-wrapper] extracting \${APPIMAGE_PATH} to \${TMPDIR}"
+APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGE_PATH}" --appimage-extract >/dev/null 2>&1 || {
+  echo "[appimage-wrapper] failed to extract \${APPIMAGE_PATH}" >&2
   exit 1
 }
 
-if [ -x "${TMPDIR}/squashfs-root/AppRun" ]; then
+if [ -x "\${TMPDIR}/squashfs-root/AppRun" ]; then
   echo "[appimage-wrapper] running extracted AppRun"
-  exec "${TMPDIR}/squashfs-root/AppRun" "${ARGS[@]}"
-elif [ -x "${TMPDIR}/AppRun" ]; then
-  exec "${TMPDIR}/AppRun" "${ARGS[@]}"
+  exec "${TMPDIR}/squashfs-root/AppRun" "$@"
+elif [ -x "\${TMPDIR}/AppRun" ]; then
+  exec "${TMPDIR}/AppRun" "$@"
 else
   echo "[appimage-wrapper] no AppRun found in extracted AppImage" >&2
   exit 1
 fi
 EOF
+      # Inject the real AppImage path into the wrapper content
+      sed -i "s#__APPIMAGE_PATH__#${appimg//\//\\/}#g" "$wrapper"
       chmod +x "$wrapper" || true
       vecho "Created AppImage wrapper: $wrapper -> $appimg"
     fi
@@ -231,6 +277,13 @@ preflight_tauri_checks() {
   command -v glib-compile-schemas >/dev/null 2>&1 || missing+=(libglib)
   # fuse binary presence
   command -v fusermount >/dev/null 2>&1 || command -v fuse >/dev/null 2>&1 || missing+=(fuse)
+  # mksquashfs is required by appimage tooling (squashfs-tools)
+  command -v mksquashfs >/dev/null 2>&1 || missing+=(squashfs-tools)
+
+  # Optional but recommended: desktop-file-validate and appstreamcli (do not fail if missing)
+  local optional_missing=()
+  command -v desktop-file-validate >/dev/null 2>&1 || optional_missing+=(desktop-file-utils)
+  command -v appstreamcli >/dev/null 2>&1 || optional_missing+=(appstream)
 
   # Rust toolchain required for tauri builds
   command -v cargo >/dev/null 2>&1 || missing+=(cargo)
@@ -243,22 +296,85 @@ preflight_tauri_checks() {
       . /etc/os-release
       case "${ID:-}" in
         debian|ubuntu|linuxmint)
-          echo "Install with: sudo apt update && sudo apt install -y patchelf pkg-config libglib2.0-bin fuse"
+          echo "Install with: sudo apt update && sudo apt install -y patchelf pkg-config libglib2.0-bin fuse squashfs-tools"
           ;;
         fedora|rhel|centos)
-          echo "Install with: sudo dnf install -y patchelf pkgconfig glib2-utils fuse"
+          echo "Install with: sudo dnf install -y patchelf pkgconfig glib2-utils fuse squashfs-tools"
           ;;
         arch)
-          echo "Install with: sudo pacman -Syu patchelf pkgconf glib2 fuse2"
+          echo "Install with: sudo pacman -Syu patchelf pkgconf glib2 fuse2 squashfs-tools"
           ;;
         *)
-          echo "Install packages for your distro: patchelf pkg-config (or pkgconf) glib utilities (glib-compile-schemas) and fuse."
+          echo "Install packages for your distro: patchelf pkg-config (or pkgconf) glib utilities (glib-compile-schemas), fuse, and squashfs-tools (mksquashfs)."
           ;;
       esac
     else
-      echo "Install packages: patchelf pkg-config glib utilities (glib-compile-schemas) and fuse."
+      echo "Install packages: patchelf pkg-config glib utilities (glib-compile-schemas), fuse, and squashfs-tools (mksquashfs)."
     fi
       return 1
+  fi
+
+  if [ ${#optional_missing[@]} -ne 0 ]; then
+    echo "Note: optional tools missing: ${optional_missing[*]} (recommended for better metadata validation)."
+    if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      case "${ID:-}" in
+        debian|ubuntu|linuxmint)
+          echo "You can install them with: sudo apt install -y desktop-file-utils appstream"
+          ;;
+        fedora|rhel|centos)
+          echo "You can install them with: sudo dnf install -y desktop-file-utils appstream"
+          ;;
+        arch)
+          echo "You can install them with: sudo pacman -Syu desktop-file-utils appstream"
+          ;;
+      esac
+    fi
+  fi
+
+  # Check GTK/WebKit dev packages via pkg-config (required to compile wry/webkitgtk stack)
+  if command -v pkg-config >/dev/null 2>&1; then
+    local pc_missing=()
+    # Minimums aligned with errors in your log and common Tauri requirements
+    pkg-config --exists 'glib-2.0 >= 2.70'        || pc_missing+=(glib-2.0)
+    pkg-config --exists 'gobject-2.0 >= 2.70'     || pc_missing+=(gobject-2.0)
+    pkg-config --exists 'gio-2.0 >= 2.70'         || pc_missing+=(gio-2.0)
+    pkg-config --exists 'gdk-3.0 >= 3.22'         || pc_missing+=(gdk-3.0)
+    pkg-config --exists 'pango >= 1.40'           || pc_missing+=(pango)
+    pkg-config --exists 'cairo >= 1.16'           || pc_missing+=(cairo)
+    pkg-config --exists 'gdk-pixbuf-2.0 >= 2.42'  || pc_missing+=(gdk-pixbuf-2.0)
+    pkg-config --exists 'atk >= 2.36'             || pc_missing+=(atk)
+    # WebKitGTK (version may vary by distro)
+    if ! pkg-config --exists 'webkit2gtk-4.1' && ! pkg-config --exists 'webkit2gtk-4.0'; then
+      pc_missing+=(webkit2gtk)
+    fi
+
+    if [ ${#pc_missing[@]} -ne 0 ]; then
+      echo "Tauri preflight: missing development packages (pkg-config): ${pc_missing[*]}"
+      if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case "${ID:-}" in
+          debian|ubuntu|linuxmint)
+            echo "Install with (Ubuntu/Debian):"
+            echo "  sudo apt update && sudo apt install -y build-essential pkg-config libgtk-3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libpango1.0-dev libcairo2-dev libatk1.0-dev libayatana-appindicator3-dev libwebkit2gtk-4.1-dev || sudo apt install -y libwebkit2gtk-4.0-dev"
+            ;;
+          fedora|rhel|centos)
+            echo "Install with (Fedora/RHEL):"
+            echo "  sudo dnf install -y gcc gcc-c++ make pkgconfig gtk3-devel glib2-devel gdk-pixbuf2-devel pango-devel cairo-devel atk-devel webkit2gtk4.1-devel || sudo dnf install -y webkit2gtk3-devel"
+            ;;
+          arch)
+            echo "Install with (Arch):"
+            echo "  sudo pacman -Syu base-devel pkgconf gtk3 glib2 gdk-pixbuf2 pango cairo atk webkit2gtk"
+            ;;
+          *)
+            echo "Install the development headers for GTK3 + WebKitGTK (webkit2gtk) for your distro."
+            ;;
+        esac
+      else
+        echo "Install the development headers for GTK3 + WebKitGTK (webkit2gtk) for your distro."
+      fi
+      return 1
+    fi
   fi
   vecho "Tauri preflight checks passed"
     # Quick runtime sanity check: try running `cargo metadata` inside tauri dir to surface permission errors
@@ -285,6 +401,20 @@ build_tauri_linux() {
     echo "Preflight checks failed — aborting Tauri linux build. See hints above to install required system packages."
     return 1
   }
+
+  # Hint tauri-bundler to use our local tools explicitly
+  export APPIMAGE_EXTRACT_AND_RUN=1
+  # Prefer system linuxdeploy if available, else fallback to local wrappers
+  if command -v linuxdeploy >/dev/null 2>&1 && command -v linuxdeploy-plugin-appimage >/dev/null 2>&1; then
+    export TAURI_BUNDLER_LINUXDEPLOY="$(command -v linuxdeploy)"
+    export TAURI_BUNDLER_LINUXDEPLOY_PLUGIN_APPIMAGE="$(command -v linuxdeploy-plugin-appimage)"
+    vecho "Using system linuxdeploy: $TAURI_BUNDLER_LINUXDEPLOY"
+  else
+    export TAURI_BUNDLER_LINUXDEPLOY="$TOOLS_DIR/linuxdeploy"
+    export TAURI_BUNDLER_LINUXDEPLOY_PLUGIN_APPIMAGE="$TOOLS_DIR/linuxdeploy-plugin-appimage"
+    vecho "Using local linuxdeploy wrappers from $TOOLS_DIR"
+  fi
+  export TAURI_BUNDLER_APPIMAGE_APPDIR_APP_RUN="$TOOLS_DIR/AppRun-x86_64"
 
   # The function accepts an optional param:
   #   --all   -> try to build all supported bundles (AppImage, deb, rpm, ...)
@@ -444,6 +574,7 @@ Targets:
   android-aab     Build an Android App Bundle (AAB) using Gradle (requires Android SDK/JDK/ANDROID_HOME)
   tauri-linux     Build Tauri desktop bundles for Linux (AppImage/deb/rpm where supported)
   tauri-windows   Build Tauri desktop bundles for Windows (prefer building on Windows/CI)
+  android-apk-debug Build a debug-signed APK for quick install via adb (no release signing)
   all             Run web build and attempt all platform builds; collects artifacts under .build/
 
 Notes / prerequisites (short):
@@ -518,6 +649,12 @@ case "$main_target" in
     run_install
     if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
     build_android_aab
+    ;;
+
+  android-apk-debug)
+    run_install
+    if [ "$SKIP_WEB" -eq 0 ]; then build_web; else vecho "Skipping web build (SKIP_WEB=1)"; fi
+    build_android_apk_debug
     ;;
 
   tauri-linux)

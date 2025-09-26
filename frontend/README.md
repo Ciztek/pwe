@@ -48,9 +48,8 @@ Run the native build orchestrator from this `frontend` folder:
 Artifacts are collected under `.build/tauri/windows/`:
 
 - NSIS installer (recommended for distribution)
-- Raw exe (for quick tests; still requires the WebView2 runtime)
 
-If you run the raw `.exe` directly and see a WebView2 missing prompt, install the WebView2 Runtime or use the NSIS installer which bootstraps it automatically.
+If you somehow run a raw `.exe` (e.g., from Rust target dirs) and see a WebView2 missing prompt, install the WebView2 Runtime or use the NSIS installer which bootstraps it automatically.
 
 ### Cross-building from Linux
 
@@ -61,5 +60,5 @@ sudo apt update && sudo apt install -y nsis
 ./scripts/build-native.sh tauri-windows
 ```
 
-If bundling fails, the script will still copy any produced `.exe` into `.build/tauri/windows/raw/`.
+If bundling fails, the script won’t place a Windows installer in `.build`. Check the logs in `.build/logs/` and ensure NSIS is installed or build on Windows.
 

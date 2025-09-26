@@ -24,6 +24,7 @@ android/app/build/
 android/build/
 android/local.properties
 android/*.keystore
+android/keystore.env
 ios/Pods/
 ios/DerivedData/
 ios/build/

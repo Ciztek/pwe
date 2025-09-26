@@ -24,6 +24,12 @@ allprojects {
     }
 }
 
+// Enforce Java 21 source/target on all compile tasks
+tasks.withType(JavaCompile).configureEach {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

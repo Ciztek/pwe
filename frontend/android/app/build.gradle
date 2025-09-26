@@ -3,6 +3,29 @@ apply plugin: 'com.android.application'
 android {
     namespace "com.mycompany.epicovid"
     compileSdk rootProject.ext.compileSdkVersion
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    signingConfigs {
+        release {
+            def storeFileEnv = System.getenv("EPICOVID_STORE_FILE")
+            def storePasswordEnv = System.getenv("EPICOVID_STORE_PASSWORD")
+            def keyAliasEnv = System.getenv("EPICOVID_KEY_ALIAS")
+            def keyPasswordEnv = System.getenv("EPICOVID_KEY_PASSWORD")
+
+            if (storeFileEnv == null || storePasswordEnv == null || keyAliasEnv == null || keyPasswordEnv == null) {
+                println("[signing] WARNING: Release signing env vars not set; release APK will be unsigned. Set EPICOVID_STORE_FILE, EPICOVID_STORE_PASSWORD, EPICOVID_KEY_ALIAS, EPICOVID_KEY_PASSWORD.")
+            } else {
+                storeFile file(storeFileEnv)
+                storePassword storePasswordEnv
+                keyAlias keyAliasEnv
+                keyPassword keyPasswordEnv
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
+        }
+    }
     defaultConfig {
         applicationId "com.mycompany.epicovid"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -20,6 +43,11 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Apply signing config only if keystore env vars are provided
+            def hasSigning = System.getenv("EPICOVID_STORE_FILE") != null && System.getenv("EPICOVID_STORE_PASSWORD") != null && System.getenv("EPICOVID_KEY_ALIAS") != null && System.getenv("EPICOVID_KEY_PASSWORD") != null
+            if (hasSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
