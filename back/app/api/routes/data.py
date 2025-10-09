@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from http import HTTPStatus
 
 from fastapi import APIRouter, Depends
@@ -17,89 +17,63 @@ async def get_global_info():
     return RedirectResponse(url="/api/data/2021-01-01/2023-03-09")
 
 
+async def get_covid_data_for_date(
+    db: AsyncSession, date: datetime, country: str | None = None
+):
+    """Fetch CovidData for a specific date and optional country."""
+    stmt = select(CovidData).where(CovidData.date == date.date())
+    if country:
+        stmt = stmt.where(CovidData.country == country)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def get_daily_difference(
+    db: AsyncSession, date: datetime, country: str | None = None
+):
+    """Compute daily new cases as difference from previous day."""
+    current = await get_covid_data_for_date(db, date, country)
+    prev = await get_covid_data_for_date(db, date - timedelta(days=1), country)
+
+    def total(data, field):
+        return sum(getattr(d, field, 0) or 0 for d in data)
+
+    return {
+        "confirmed": total(current, "confirmed") - total(prev, "confirmed"),
+        "deaths": total(current, "deaths") - total(prev, "deaths"),
+        "recovered": total(current, "recovered") - total(prev, "recovered"),
+    }
+
+
 @router.get(
     "/{date}",
     response_model=DataOutput,
-    description="Get COVID-19 data for a specific date",
-    responses={
-        HTTPStatus.OK: {
-            "model": DataOutput,
-            "content": {
-                "application/json": {
-                    "example": DataOutput(
-                        date=datetime(2023, 3, 9),
-                        confirmed=123456,
-                        deaths=7890,
-                        recovered=100000,
-                    ).model_dump()
-                }
-            },
-            "description": "COVID-19 data for the specified date",
-        },
-        HTTPStatus.NOT_FOUND: {
-            "model": SimpleMessage,
-            "content": {
-                "application/json": {
-                    "example": SimpleMessage(
-                        message="No data found for date: 2023-03-09"
-                    ).model_dump()
-                }
-            },
-            "description": "No data found for the specified date",
-        },
-    },
+    description="Get daily new COVID-19 cases for a specific date",
 )
 async def get_date_info(
     date: datetime, db: AsyncSession = Depends(get_session)
 ):
-    result = await db.execute(
-        select(CovidData).where(CovidData.date == date.date())
-    )
-    data = result.scalars().all()
-    if not data:
+    current = await get_covid_data_for_date(db, date)
+    if not current:
         return JSONResponse(
             {"message": f"No data found for date: {date.date()}"},
             status_code=HTTPStatus.NOT_FOUND,
         )
+
+    diff = await get_daily_difference(db, date)
+
     return DataOutput(
         date=date,
-        confirmed=sum(getattr(d, "confirmed", 0) for d in data),
-        deaths=sum(getattr(d, "deaths", 0) for d in data),
-        recovered=sum(getattr(d, "recovered", 0) for d in data),
+        confirmed=max(diff["confirmed"], 0),
+        deaths=max(diff["deaths"], 0),
+        recovered=max(diff["recovered"], 0),
     )
 
 
 @router.get(
     "/{start_date}/{end_date}",
     response_model=DataOutput,
-    description="Get COVID-19 data for a specific date range",
-    responses={
-        HTTPStatus.OK: {
-            "model": DataOutput,
-            "content": {
-                "application/json": {
-                    "example": DataOutput(
-                        date_range="2021-01-01 to 2021-01-31",
-                        confirmed=123456,
-                        deaths=7890,
-                        recovered=100000,
-                    ).model_dump()
-                }
-            },
-            "description": "COVID-19 data for the specified date range",
-        },
-        HTTPStatus.NOT_FOUND: {
-            "model": SimpleMessage,
-            "content": {
-                "application/json": {
-                    "example": SimpleMessage(
-                        message="No data found for date range: 2021-01-01 to 2021-01-31"
-                    ).model_dump()
-                }
-            },
-            "description": "No data found for the specified date range",
-        },
-    },
+    description="Get COVID-19 data for a specific date range (daily new cases aggregated)",
 )
 async def get_date_range_info(
     start_date: datetime,
@@ -111,24 +85,22 @@ async def get_date_range_info(
             {"message": "Start date must be before or equal to end date."},
             status_code=HTTPStatus.BAD_REQUEST,
         )
-    result = await db.execute(
-        select(CovidData).where(
-            CovidData.date.between(start_date.date(), end_date.date())
-        )
-    )
-    data = result.scalars().all()
-    if not data:
-        return JSONResponse(
-            {
-                "message": f"No data found for date range: {start_date.date()} to {end_date.date()}"
-            },
-            status_code=HTTPStatus.NOT_FOUND,
-        )
+
+    total_confirmed = total_deaths = total_recovered = 0
+
+    date = start_date
+    while date <= end_date:
+        diff = await get_daily_difference(db, date)
+        total_confirmed += max(diff["confirmed"], 0)
+        total_deaths += max(diff["deaths"], 0)
+        total_recovered += max(diff["recovered"], 0)
+        date += timedelta(days=1)
+
     return DataOutput(
         date_range=f"{start_date.date()} to {end_date.date()}",
-        confirmed=sum(getattr(d, "confirmed", 0) or 0 for d in data),
-        deaths=sum(getattr(d, "deaths", 0) or 0 for d in data),
-        recovered=sum(getattr(d, "recovered", 0) or 0 for d in data),
+        confirmed=total_confirmed,
+        deaths=total_deaths,
+        recovered=total_recovered,
     )
 
 
@@ -145,11 +117,13 @@ async def get_country_info(
             {"message": f"No data found for country: {country}"},
             status_code=HTTPStatus.NOT_FOUND,
         )
+
+    latest = max(data, key=lambda d: d.date)
     return DataOutput(
         place=country,
-        confirmed=sum(getattr(d, "confirmed", 0) or 0 for d in data),
-        deaths=sum(getattr(d, "deaths", 0) or 0 for d in data),
-        recovered=sum(getattr(d, "recovered", 0) or 0 for d in data),
+        confirmed=getattr(latest, "confirmed", 0),
+        deaths=getattr(latest, "deaths", 0),
+        recovered=getattr(latest, "recovered", 0),
     )
 
 
@@ -157,12 +131,8 @@ async def get_country_info(
 async def get_date_country_info(
     date: datetime, country: str, db: AsyncSession = Depends(get_session)
 ):
-    result = await db.execute(
-        select(CovidData).where(
-            (CovidData.date == date.date()) & (CovidData.country == country)
-        )
-    )
-    data = result.scalars().all()
+    diff = await get_daily_difference(db, date, country)
+    data = await get_covid_data_for_date(db, date, country)
     if not data:
         return JSONResponse(
             {
@@ -173,9 +143,9 @@ async def get_date_country_info(
     return DataOutput(
         place=country,
         date=date,
-        confirmed=sum(getattr(d, "confirmed", 0) or 0 for d in data),
-        deaths=sum(getattr(d, "deaths", 0) or 0 for d in data),
-        recovered=sum(getattr(d, "recovered", 0) or 0 for d in data),
+        confirmed=max(diff["confirmed"], 0),
+        deaths=max(diff["deaths"], 0),
+        recovered=max(diff["recovered"], 0),
     )
 
 
@@ -191,24 +161,20 @@ async def get_date_range_country_info(
             {"message": "Start date must be before or equal to end date."},
             status_code=HTTPStatus.BAD_REQUEST,
         )
-    result = await db.execute(
-        select(CovidData).where(
-            (CovidData.date.between(start_date.date(), end_date.date()))
-            & (CovidData.country == country)
-        )
-    )
-    data = result.scalars().all()
-    if not data:
-        return JSONResponse(
-            {
-                "message": f"No data found for country: {country} in date range: {start_date.date()} to {end_date.date()}"
-            },
-            status_code=HTTPStatus.NOT_FOUND,
-        )
+
+    total_confirmed = total_deaths = total_recovered = 0
+    date = start_date
+    while date <= end_date:
+        diff = await get_daily_difference(db, date, country)
+        total_confirmed += max(diff["confirmed"], 0)
+        total_deaths += max(diff["deaths"], 0)
+        total_recovered += max(diff["recovered"], 0)
+        date += timedelta(days=1)
+
     return DataOutput(
         place=country,
         date_range=f"{start_date.date()} to {end_date.date()}",
-        confirmed=sum(getattr(d, "confirmed", 0) or 0 for d in data),
-        deaths=sum(getattr(d, "deaths", 0) or 0 for d in data),
-        recovered=sum(getattr(d, "recovered", 0) or 0 for d in data),
+        confirmed=total_confirmed,
+        deaths=total_deaths,
+        recovered=total_recovered,
     )
