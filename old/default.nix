@@ -2,16 +2,6 @@
 , buildNpmPackage
 , nodejs_20
 , pnpm
-, rustup
-, pkg-config
-, openssl
-, gtk3
-, glib
-, webkitgtk_4_1
-, jdk17
-, gradle
-, gcc
-, gnumake
 }:
 
 buildNpmPackage {
@@ -21,30 +11,20 @@ buildNpmPackage {
   src = ./.;
 
   npmLockFile = ./pnpm-lock.yaml;
+  npmDepsHash = "sha256-iwMwRF9bFuQe373N0JKJ5mIJ4fUH9msuc6nA0jsvi9U=";
 
   npmBuildScript = "build";
+
 
   nativeBuildInputs = [
     nodejs_20
     pnpm
-    rustup
-    pkg-config
-    openssl
-    gtk3
-    glib
-    webkitgtk_4_1
-    jdk17
-    gradle
-    gcc
-    gnumake
   ];
 
   installPhase = ''
     runHook preInstall
-
     mkdir -p $out
     cp -r dist/* $out/
-
     runHook postInstall
   '';
 
@@ -64,7 +44,7 @@ buildNpmPackage {
   meta = {
     description = "Frontend of the EpiCovid project (React + Capacitor + Tauri)";
     license = lib.licenses.bsd3;
-    maintainers = with lib.maintainers; [ sigmanificient ];
+    maintainers = with lib.maintainers; [ cizniarova ];
     platforms = lib.platforms.all;
     mainProgram = "vite";
   };

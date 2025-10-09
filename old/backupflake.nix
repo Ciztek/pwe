@@ -43,6 +43,7 @@
             "isort"
             "trim-trailing-whitespace"
             "deadnix"
+            "alejandra"
           ] (_: {enable = true;});
         };
       }
@@ -104,10 +105,86 @@
       };
     });
 
-    packages = forAllSystems (pkgs: {
-      android-composition = pkgs.callPackage ./frontend/composition.nix { };
-      front = pkgs.callPackage ./frontend { };
-      back = pkgs.callPackage ./back { };
-    });
+packages = forAllSystems (pkgs: {
+  # ✅ Already existing
+  android-composition = pkgs.callPackage ./frontend/composition.nix { };
+  front = pkgs.callPackage ./frontend { };
+  back = pkgs.callPackage ./back { };
+
+  # 🖥️ Desktop build (Tauri)
+  front-desktop = pkgs.stdenv.mkDerivation rec {
+    pname = "epicovid-frontend-desktop";
+    version = "0.0.1";
+
+    src = ./.;
+
+    nativeBuildInputs = [
+      pkgs.rustup
+      pkgs.cargo
+      pkgs.gcc
+      pkgs.pkg-config
+      pkgs.openssl
+      pkgs.gtk3
+      pkgs.glib
+      pkgs.webkitgtk_4_1
+      pkgs.nodejs
+      pkgs.pnpm
+    ];
+
+
+    frontendNodeModules = self.packages.${pkgs.system}.front;
+    buildPhase = ''
+      echo "=== Copying frontend assets and node_modules ==="
+      cp -r ${frontendNodeModules}/. $PWD/frontend
+
+      echo "=== Building Tauri app ==="
+      cargo tauri build
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      cp -r target/release/bundle $out/
+    '';
+  };
+
+  # 📱 Android build (Capacitor)
+front-android = pkgs.stdenv.mkDerivation rec {
+  pname = "epicovid-frontend-android";
+  version = "0.0.1";
+
+  src = ./.;
+
+  nativeBuildInputs = with pkgs; with self.packages.${pkgs.system}.android-composition; [
+    gradle
+    jdk
+    androidsdk
+    platform-tools
+    build-tools
+    pnpm
+  ];
+
+  # Reuse already-built frontend node_modules from .#front
+  frontendNodeModules = self.packages.${pkgs.system}.front;
+
+  buildPhase = ''
+    echo "=== Copying frontend assets and node_modules ==="
+    cp -r ${frontendNodeModules}/. $PWD/frontend
+
+    echo "=== Syncing Capacitor project ==="
+    cd frontend
+    $(which cap) sync android
+
+    echo "=== Running Gradle build ==="
+    cd android
+    gradle assembleDebug
+  '';
+
+  installPhase = ''
+    mkdir -p $out
+    cp -r android/app/build/outputs $out/
+  '';
+};
+
+});
   };
 }

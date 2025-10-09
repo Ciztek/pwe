@@ -3,11 +3,11 @@
   python3Packages,
 }:
 python3Packages.buildPythonApplication {
-  name = "covid-dataviz";
+  name = "EpiCoBack";
   version = "0.0.1";
   pyproject = true;
 
-  src = ./.;
+  src = ../back;
 
   build-system = [python3Packages.hatchling];
 
@@ -28,9 +28,9 @@ python3Packages.buildPythonApplication {
   };
 
   meta = {
-    description = "Modular workflow runner with FastAPI, SQLAlchemy, and MariaDB";
+    description = "Backend for the Covid19-Dataviz project";
     license = lib.licenses.bsd3;
-    maintainers = with lib.maintainers; [sigmanificient];
-    mainProgram = "area";
+    maintainers = with lib.maintainers; [cizniarova];
+    mainProgram = "EpiCoBack";
   };
 }
