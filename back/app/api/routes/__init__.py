@@ -1,10 +1,5 @@
-from http import HTTPStatus
+from . import data, hello
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
-
-from . import hello
-
-routers = [hello.router]
+routers = [hello.router, data.router]
 
 __all__ = ("routers",)
