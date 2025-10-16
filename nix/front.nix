@@ -80,4 +80,54 @@
       maintainers = with lib.maintainers; [cizniarova];
     };
   });
+  windows = pkgs.stdenv.mkDerivation {
+    name = "EpiCoWindows";
+    version = "0.0.1";
+
+    src = ../frontend;
+
+    nativeBuildInputs = [ ];
+
+    buildPhase = ''
+      ../frontend/scripts/build-native.sh tauri-windows
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      echo "Installing Windows app..."
+      # Add your install commands here
+    '';
+
+    meta = {
+      description = "Windows frontend of EpiCovid";
+      license = lib.licenses.bsd3;
+      maintainers = with lib.maintainers; [cizniarova];
+    };
+  };
+
+  mobile = pkgs.stdenv.mkDerivation {
+    name = "EpiCoMobile";
+    version = "0.0.1";
+
+    src = ../frontend;
+
+    nativeBuildInputs = [ ];
+
+    buildPhase = ''
+      echo "Building mobile app..."
+      # Add your build commands here
+    '';
+
+    installPhase = ''
+      mkdir -p $out
+      echo "Installing mobile app..."
+      # Add your install commands here
+    '';
+
+    meta = {
+      description = "Mobile frontend of EpiCovid";
+      license = lib.licenses.bsd3;
+      maintainers = with lib.maintainers; [cizniarova];
+    };
+  };
 }
