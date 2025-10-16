@@ -10,3 +10,9 @@ class DataOutput(BaseModel):
     confirmed: int
     deaths: int
     recovered: int
+
+
+class PlaceOutput(BaseModel):
+    countries: list[str]
+    state: list[str]
+    us_counties: list[str]
