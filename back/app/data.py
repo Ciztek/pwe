@@ -1,7 +1,8 @@
+from bisect import bisect_left, bisect_right
 from csv import DictReader, DictWriter
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from pydantic import BaseModel
 
@@ -12,9 +13,6 @@ from .utils import daterange, log_time
 class Config(BaseModel):
     raw_data_path: str
     preprocess_data_path: str
-
-
-settings = get_package_config(__package__, Config)
 
 
 class DailyData(TypedDict):
@@ -28,6 +26,43 @@ class DailyData(TypedDict):
     total_deaths: int
     daily_confirmed: int
     daily_deaths: int
+
+
+settings = get_package_config(__package__, Config)
+data: List[DailyData] = []
+
+
+def _normalize(value: Any) -> Any:
+    """Normalize values for safe comparison."""
+    if isinstance(value, str):
+        return value.strip().lower()
+    if isinstance(value, float):
+        return float(value)
+    if isinstance(value, int):
+        return int(value)
+    return value
+
+
+def bsearch(
+    data: List[DailyData], key: str, target: str | int | float
+) -> List[DailyData]:
+    if not data:
+        return []
+
+    assert (
+        key in DailyData.__annotations__.keys()
+    ), f"Key '{key}' is not a valid DailyData field"
+    assert DailyData.__annotations__[key] is type(
+        target
+    ), f"Type of target '{type(target)}' does not match type of field '{DailyData.__annotations__[key]}'"
+    data.sort(key=lambda x: x[key])
+    target_norm = _normalize(target)
+    values = [_normalize(row[key]) for row in data]
+
+    left = bisect_left(values, target_norm)
+    right = bisect_right(values, target_norm)
+
+    return data[left:right]
 
 
 @log_time
