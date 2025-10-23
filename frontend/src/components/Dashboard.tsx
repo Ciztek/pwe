@@ -1,115 +1,149 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CovidDatum } from "../services/mockApi";
-import { fetchMockCovidSeries } from "../services/mockApi";
-import { CasesLineChart, StackedAreaChart } from "./Charts";
+import ControlsBar from "./ControlsBar";
+import KpiCards from "./KpiCards";
+import ChartsGrid from "./ChartsGrid";
+import {
+	fetchSeries,
+	fetchTotalsRange,
+	fetchCountries,
+	type SeriesPoint,
+} from "../services/api";
+import MapPanel from "./MapPanel";
 
-type Place = string;
+// Minimal static coords for common countries; in a real app we'd fetch geo data
+const COUNTRY_COORDS: Record<string, { lat: number; lon: number }> = {
+	France: { lat: 46.2276, lon: 2.2137 },
+	USA: { lat: 37.0902, lon: -95.7129 },
+	Brazil: { lat: -14.235, lon: -51.9253 },
+	India: { lat: 20.5937, lon: 78.9629 },
+};
 
 export default function Dashboard() {
-	const [data, setData] = useState<CovidDatum[]>([]);
-	const [place, setPlace] = useState<Place>("World");
-	const [loading, setLoading] = useState(true);
+	const [place, setPlace] = useState<string>("World");
+	const [places, setPlaces] = useState<string[]>(["World"]);
+	const [start, setStart] = useState<string>("2021-01-01");
+	const [end, setEnd] = useState<string>("2021-01-30");
+
+	const [series, setSeries] = useState<SeriesPoint[]>([]);
+	const [totals, setTotals] = useState({
+		confirmed: 0,
+		recovered: 0,
+		deaths: 0,
+	});
+	const [mapPoints, setMapPoints] = useState<
+		Array<{ lat: number; lon: number; value: number; place?: string }>
+	>([]);
+	const [loading, setLoading] = useState<boolean>(true);
+	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
+		let mounted = true;
 		setLoading(true);
-		fetchMockCovidSeries().then((rows) => {
-			setData(rows);
-			setLoading(false);
-		});
-	}, []);
-
-	const places = useMemo(
-		() => Array.from(new Set(data.map((d) => d.place))),
-		[data],
-	);
-
-	const series = useMemo(() => {
-		const filtered = data.filter((d) => d.place === place);
-		return filtered.map((d) => ({ date: d.date, value: d.confirmed }));
-	}, [data, place]);
-
-	const stacked = useMemo(() => {
-		// produce one item per date with aggregated fields
-		const map = new Map<
-			string,
-			{ date: string; confirmed: number; deaths: number; recovered: number }
-		>();
-		data
-			.filter((d) => d.place === place)
-			.forEach((d) => {
-				map.set(d.date, {
-					date: d.date,
-					confirmed: d.confirmed,
-					deaths: d.deaths,
-					recovered: d.recovered,
+		setError(null);
+		Promise.all([
+			fetchSeries(start, end, place === "World" ? undefined : place),
+			fetchTotalsRange(start, end, place === "World" ? undefined : place),
+			fetchCountries(),
+		])
+			.then(([s, t, countries]) => {
+				if (!mounted) return;
+				setSeries(s);
+				setTotals({
+					confirmed: t.confirmed,
+					recovered: t.recovered,
+					deaths: t.deaths,
 				});
+				setPlaces(Array.from(new Set(["World", ...(countries || [])])));
+
+				// Build map points: if World selected, show each place from fetched places
+				if (place === "World") {
+					const tasks = (countries || []).map(async (c) => {
+						try {
+							// Use the range endpoint to get totals for the timespan
+							const totals = await fetchTotalsRange(start, end, c);
+							const coords = COUNTRY_COORDS[c];
+							if (coords)
+								return {
+									lat: coords.lat,
+									lon: coords.lon,
+									value: totals.confirmed,
+									place: c,
+								};
+						} catch {
+							// ignore per-country failures
+						}
+						return null;
+					});
+					Promise.all(tasks).then((res) => {
+						if (!mounted) return;
+						const pts = res.filter(Boolean) as Array<{
+							lat: number;
+							lon: number;
+							value: number;
+							place?: string;
+						}>;
+						setMapPoints(pts || []);
+					});
+				} else {
+					// single-country: show single point if we have coords
+					const coords = COUNTRY_COORDS[place];
+					if (coords) {
+						setMapPoints([
+							{ lat: coords.lat, lon: coords.lon, value: t.confirmed, place },
+						]);
+					} else {
+						setMapPoints([]);
+					}
+				}
+			})
+			.catch((err) => {
+				setError(err instanceof Error ? err.message : String(err));
+			})
+			.finally(() => {
+				if (mounted) setLoading(false);
 			});
-		return Array.from(map.values()).sort((a, b) =>
-			a.date.localeCompare(b.date),
-		);
-	}, [data, place]);
+		return () => {
+			mounted = false;
+		};
+	}, [place, start, end]);
+
+	const lineSeries = useMemo(
+		() => series.map((d) => ({ date: d.date, value: d.confirmed })),
+		[series],
+	);
+	const stacked = useMemo(
+		() =>
+			series.map((d) => ({
+				date: d.date,
+				confirmed: d.confirmed,
+				deaths: d.deaths,
+				recovered: d.recovered,
+			})),
+		[series],
+	);
 
 	return (
 		<div className="dashboard-root">
-			<header className="dashboard-header">
-				<h2>EpiCovid — Dashboard</h2>
-				<div className="controls">
-					<label>
-						Place:
-						<select value={place} onChange={(e) => setPlace(e.target.value)}>
-							{places.map((p) => (
-								<option key={p} value={p}>
-									{p}
-								</option>
-							))}
-						</select>
-					</label>
-				</div>
-			</header>
+			<ControlsBar
+				place={place}
+				places={places}
+				start={start}
+				end={end}
+				onPlaceChange={setPlace}
+				onStartChange={setStart}
+				onEndChange={setEnd}
+			/>
 
-			<main>
+			<main className="dashboard-main-grid">
 				{loading ? (
-					<p>Loading mock data…</p>
+					<p>Loading data…</p>
+				) : error ? (
+					<p style={{ color: "#ff6b6b" }}>Error: {error}</p>
 				) : (
 					<>
-						<section className="cards">
-							<div className="card small">
-								<h3>Confirmed</h3>
-								<p className="big">
-									{stacked.length
-										? stacked[stacked.length - 1].confirmed.toLocaleString()
-										: "—"}
-								</p>
-							</div>
-							<div className="card small">
-								<h3>Recovered</h3>
-								<p className="big">
-									{stacked.length
-										? stacked[stacked.length - 1].recovered.toLocaleString()
-										: "—"}
-								</p>
-							</div>
-							<div className="card small">
-								<h3>Deaths</h3>
-								<p className="big">
-									{stacked.length
-										? stacked[stacked.length - 1].deaths.toLocaleString()
-										: "—"}
-								</p>
-							</div>
-						</section>
-
-						<section className="charts">
-							<div className="chart-card">
-								<h4>Confirmed cases (last 30 days)</h4>
-								<CasesLineChart data={series} color="#8884d8" />
-							</div>
-
-							<div className="chart-card">
-								<h4>Breakdown (Confirmed / Recovered / Deaths)</h4>
-								<StackedAreaChart data={stacked} />
-							</div>
-						</section>
+						<KpiCards totals={totals} />
+						<ChartsGrid line={lineSeries} stacked={stacked} />
+						<MapPanel points={mapPoints} />
 					</>
 				)}
 			</main>
