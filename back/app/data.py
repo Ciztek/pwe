@@ -1,6 +1,7 @@
 from bisect import bisect_left, bisect_right
 from csv import DictReader, DictWriter
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
@@ -29,7 +30,6 @@ class DailyData(TypedDict):
 
 
 settings = get_package_config(__package__, Config)
-data: List[DailyData] = []
 
 
 def _normalize(value: Any) -> Any:
@@ -147,3 +147,28 @@ def preprocess_data(
         writer.writerows(all_data)
 
     return all_data
+
+
+@lru_cache(maxsize=1)
+def process_data():
+    if not Path(settings.preprocess_data_path).exists():
+        data = preprocess_data()
+    else:
+        with open(settings.preprocess_data_path, "r") as f:
+            reader = DictReader(f)
+            data: List[DailyData] = [
+                {
+                    "date": int(r["date"]),
+                    "country": r["country"],
+                    "state": r["state"] or None,
+                    "county": r["county"] or None,
+                    "lat": float(r["lat"]),
+                    "long": float(r["long"]),
+                    "total_confirmed": int(r["total_confirmed"]),
+                    "total_deaths": int(r["total_deaths"]),
+                    "daily_confirmed": int(r["daily_confirmed"]),
+                    "daily_deaths": int(r["daily_deaths"]),
+                }
+                for r in reader
+            ]
+    return data

@@ -1,14 +1,13 @@
 from contextlib import asynccontextmanager
-from csv import DictReader
-from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 from uvicorn import run
 
 from .config import get_package_config
-from .data import DailyData, data, preprocess_data
+from .data import process_data
+from .routes import routers
+from .utils import log_time
 
 
 class Config(BaseModel):
@@ -21,31 +20,19 @@ settings = get_package_config(__package__, Config)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global data
-    if not Path(settings.preprocess_data_path).exists():
-        data = preprocess_data()
-    else:
-        with open(settings.preprocess_data_path, "r") as f:
-            reader = DictReader(f)
-            data: list[DailyData] = [
-                {
-                    "date": int(r["date"]),
-                    "country": r["country"],
-                    "state": r["state"] or None,
-                    "county": r["county"] or None,
-                    "lat": float(r["lat"]),
-                    "long": float(r["long"]),
-                    "total_confirmed": int(r["total_confirmed"]),
-                    "total_deaths": int(r["total_deaths"]),
-                    "daily_confirmed": int(r["daily_confirmed"]),
-                    "daily_deaths": int(r["daily_deaths"]),
-                }
-                for r in reader
-            ]
+    (log_time(lambda: process_data()))()
     yield
+    # print(f"Shutting down app at {datetime.now()}")
+    # data = next(process_data())
+    # french_data = bsearch(data, key="country", target="France")
+    # first_date_data = bsearch(french_data, key="date", target=int(datetime(2021, 1, 1).timestamp()))
+    # print(f"France regions names at 2021-01-01: {[d['state'] for d in first_date_data]}")
 
 
 app = FastAPI(docs_url="/docs", lifespan=lifespan)
+
+for router in routers:
+    app.include_router(router)
 
 
 def main():
