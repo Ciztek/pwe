@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
-from . import hello, place
+from . import data, hello, place
 
 routers = []
 
-for mod in (hello, place):
+for mod in (data, hello, place):
     assert hasattr(
         mod, "router"
     ), f"Module {mod.__name__} is missing 'router' attribute"
