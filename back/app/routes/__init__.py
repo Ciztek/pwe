@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
-from . import hello
+from . import filter, hello
 
 routers: list[tuple[str, APIRouter]] = []
 
-for mod in (hello,):
+for mod in (filter, hello):
     assert hasattr(
         mod, "router"
     ), f"Module {mod.__name__} is missing 'router' attribute"
