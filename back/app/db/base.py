@@ -2,10 +2,11 @@ from csv import DictReader
 from datetime import date, timedelta
 from pathlib import Path
 
-import aiosqlite
+from aiosqlite import Connection, Row, connect
 from pydantic import BaseModel
 
 from ..config import get_package_config
+from ..utils.continent_map import CONTINENT_MAP
 from ..utils.wrapper import async_timed
 
 
@@ -19,8 +20,8 @@ settings = get_package_config(__package__, Config)
 
 async def get_db():
     """Async context manager that yields an aiosqlite connection."""
-    conn = await aiosqlite.connect(settings.uri)
-    conn.row_factory = aiosqlite.Row
+    conn = await connect(settings.uri)
+    conn.row_factory = Row
     await conn.execute("PRAGMA foreign_keys = ON;")
     try:
         yield conn
@@ -29,7 +30,7 @@ async def get_db():
 
 
 @async_timed
-async def init_schema(conn: aiosqlite.Connection):
+async def init_schema(conn: Connection):
     """Create tables with proper AUTOINCREMENT (independent counters)."""
     await conn.executescript(
         """
@@ -81,7 +82,7 @@ async def init_schema(conn: aiosqlite.Connection):
 
 
 @async_timed
-async def fill_db(conn: aiosqlite.Connection):
+async def fill_db(conn: Connection):
     """Load CSV data efficiently without ORM overhead."""
     data_path = Path(settings.data_path)
     start_date = date(2021, 1, 1)
@@ -174,26 +175,8 @@ async def fill_db(conn: aiosqlite.Connection):
 
 
 @async_timed
-async def place_db(conn: aiosqlite.Connection):
+async def place_db(conn: Connection):
     """Generate hierarchical place tables based on distinct data points."""
-    continent_map = {
-        "US": "North America",
-        "Canada": "North America",
-        "Mexico": "North America",
-        "Brazil": "South America",
-        "Argentina": "South America",
-        "France": "Europe",
-        "Germany": "Europe",
-        "Italy": "Europe",
-        "Spain": "Europe",
-        "China": "Asia",
-        "Japan": "Asia",
-        "India": "Asia",
-        "Australia": "Oceania",
-        "New Zealand": "Oceania",
-        "South Africa": "Africa",
-        "Egypt": "Africa",
-    }
 
     print("[place_db] Building place hierarchy...")
 
@@ -210,7 +193,7 @@ async def place_db(conn: aiosqlite.Connection):
             continue
 
         province = None if province == "Unknown" else province
-        continent = continent_map.get(country, "Unknown")
+        continent = CONTINENT_MAP.get(country, "Unknown")
 
         # Continent
         await conn.execute(
@@ -264,8 +247,8 @@ async def place_db(conn: aiosqlite.Connection):
 
 @async_timed
 async def init_db():
-    async with aiosqlite.connect(settings.uri) as conn:
-        conn.row_factory = aiosqlite.Row
+    async with connect(settings.uri) as conn:
+        conn.row_factory = Row
         await init_schema(conn)
         await fill_db(conn)
         await place_db(conn)

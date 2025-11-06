@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as Date
 from typing import TypedDict
 
 from pydantic import BaseModel
@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 class DataOutput(BaseModel):
     place: str | None = None
-    date: datetime | None = None
+    date: Date | None = None
     date_range: str | None = None
     confirmed: int
     deaths: int
