@@ -136,9 +136,119 @@ async def fill_db(db: AsyncSession):
 
 
 async def place_db(db: AsyncSession):
+    from sqlalchemy import distinct, select
+
     from .models import Continent, Country, County, DataPoint, State
 
-    pass
+    continent_map = {
+        "US": "North America",
+        "Canada": "North America",
+        "Mexico": "North America",
+        "Brazil": "South America",
+        "Argentina": "South America",
+        "France": "Europe",
+        "Germany": "Europe",
+        "Italy": "Europe",
+        "Spain": "Europe",
+        "China": "Asia",
+        "Japan": "Asia",
+        "India": "Asia",
+        "Australia": "Oceania",
+        "New Zealand": "Oceania",
+        "South Africa": "Africa",
+        "Egypt": "Africa",
+        "Other": "Unknown",
+    }
+
+    print("[place_db] Building location hierarchy...")
+
+    continents_cache: dict[str, Continent] = {
+        getattr(c, "name"): c
+        for c in (await db.execute(select(Continent))).scalars().all()
+    }
+
+    countries_cache: dict[tuple[str, str], Country] = {}
+    for country in (await db.execute(select(Country))).scalars().all():
+        continent = await db.get(Continent, country.continent_id)
+        if continent:
+            countries_cache[
+                (getattr(continent, "name"), getattr(country, "name"))
+            ] = country
+
+    states_cache: dict[tuple[str, str], State] = {}
+    for state in (await db.execute(select(State))).scalars().all():
+        country = await db.get(Country, state.country_id)
+        if country:
+            states_cache[
+                (getattr(country, "name"), getattr(state, "name"))
+            ] = state
+
+    counties_cache: dict[tuple[str, str], County] = {}
+    for county in (await db.execute(select(County))).scalars().all():
+        state = await db.get(State, county.state_id)
+        if state:
+            counties_cache[
+                (getattr(state, "name"), getattr(county, "name"))
+            ] = county
+
+    # Fetch distinct country/province/county combos
+    result = await db.execute(
+        select(
+            distinct(DataPoint.country),
+            DataPoint.province,
+            DataPoint.us_county_name,
+        )
+    )
+    rows = result.all()
+
+    # Process rows into hierarchy
+    for country, province, county in rows:
+        if not country:
+            continue
+
+        if province == "Unknown":
+            province = None
+
+        continent_name = continent_map.get(country, "Unknown")
+
+        # --- Continent ---
+        continent = continents_cache.get(continent_name)
+        if not continent:
+            continent = Continent(name=continent_name)
+            db.add(continent)
+            await db.flush()
+            continents_cache[continent_name] = continent
+
+        # --- Country ---
+        country_key = (getattr(continent, "name"), country)
+        country_obj = countries_cache.get(country_key)
+        if not country_obj:
+            country_obj = Country(name=country, continent_id=continent.id)
+            db.add(country_obj)
+            await db.flush()
+            countries_cache[country_key] = country_obj
+
+        # --- State / Province ---
+        state_obj = None
+        if province:
+            state_key = (country, province)
+            state_obj = states_cache.get(state_key)
+            if not state_obj:
+                state_obj = State(name=province, country_id=country_obj.id)
+                db.add(state_obj)
+                await db.flush()
+                states_cache[state_key] = state_obj
+
+        # --- County ---
+        if county and state_obj and country == "US":
+            county_key = (province, county)
+            if county_key not in counties_cache:
+                county_obj = County(name=county, state_id=state_obj.id)
+                db.add(county_obj)
+                counties_cache[county_key] = county_obj
+
+    await db.commit()
+    print("[place_db] Hierarchical place data updated successfully.")
 
 
 async def init_db():
