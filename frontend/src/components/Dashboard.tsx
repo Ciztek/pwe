@@ -23,6 +23,15 @@ export default function Dashboard() {
 	const [places, setPlaces] = useState<string[]>(["World"]);
 	const [start, setStart] = useState<string>("2021-01-01");
 	const [end, setEnd] = useState<string>("2021-01-30");
+	// Mobile layout preference: 'charts' | 'map'
+	const [mobileOrder, setMobileOrder] = useState<"charts" | "map">(() => {
+		if (typeof window !== "undefined") {
+			return (
+				(localStorage.getItem("mobileOrder") as "charts" | "map") || "charts"
+			);
+		}
+		return "charts";
+	});
 
 	const [series, setSeries] = useState<SeriesPoint[]>([]);
 	const [totals, setTotals] = useState({
@@ -35,6 +44,15 @@ export default function Dashboard() {
 	>([]);
 	const [loading, setLoading] = useState<boolean>(true);
 	const [error, setError] = useState<string | null>(null);
+
+	// Persist mobile order preference
+	useEffect(() => {
+		try {
+			localStorage.setItem("mobileOrder", mobileOrder);
+		} catch {
+			// ignore storage issues
+		}
+	}, [mobileOrder]);
 
 	useEffect(() => {
 		let mounted = true;
@@ -129,12 +147,16 @@ export default function Dashboard() {
 				places={places}
 				start={start}
 				end={end}
+				mobileOrder={mobileOrder}
+				onMobileOrderChange={setMobileOrder}
 				onPlaceChange={setPlace}
 				onStartChange={setStart}
 				onEndChange={setEnd}
 			/>
 
-			<main className="dashboard-main-grid">
+			<main
+				className={`dashboard-main-grid ${mobileOrder === "map" ? "mobile-map-first" : "mobile-charts-first"}`}
+			>
 				{loading ? (
 					<p>Loading data…</p>
 				) : error ? (

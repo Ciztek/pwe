@@ -6,6 +6,8 @@ type Props = {
 	places: string[];
 	start: string;
 	end: string;
+	mobileOrder?: "charts" | "map";
+	onMobileOrderChange?: (v: "charts" | "map") => void;
 	onPlaceChange: (v: string) => void;
 	onStartChange: (v: string) => void;
 	onEndChange: (v: string) => void;
@@ -17,6 +19,8 @@ export default function ControlsBar({
 	places,
 	start,
 	end,
+	mobileOrder = "charts",
+	onMobileOrderChange,
 	onPlaceChange,
 	onStartChange,
 	onEndChange,
@@ -35,7 +39,7 @@ export default function ControlsBar({
 						))}
 					</select>
 				</label>
-				<label style={{ marginLeft: 12 }}>
+				<label>
 					Start:
 					<input
 						type="date"
@@ -43,13 +47,25 @@ export default function ControlsBar({
 						onChange={(e) => onStartChange(e.target.value)}
 					/>
 				</label>
-				<label style={{ marginLeft: 12 }}>
+				<label>
 					End:
 					<input
 						type="date"
 						value={end}
 						onChange={(e) => onEndChange(e.target.value)}
 					/>
+				</label>
+				<label className="mobile-only">
+					Mobile layout:
+					<select
+						value={mobileOrder}
+						onChange={(e) =>
+							onMobileOrderChange?.(e.target.value as "charts" | "map")
+						}
+					>
+						<option value="charts">Charts first</option>
+						<option value="map">Map first</option>
+					</select>
 				</label>
 			</div>
 		</header>

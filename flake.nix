@@ -74,7 +74,7 @@
 
       default = pkgs.mkShell {
         inputsFrom = [ self.devShells.${pkgs.system}.base ];
-
+        env.ANDROID_HOME = "${compo.androidsdk}/libexec/android-sdk";
         env.ANDROID_SDK_ROOT = "${compo.androidsdk}/libexec/android-sdk";
 
         packages = (with compo; [
@@ -95,7 +95,7 @@
         inputsFrom = [ self.devShells.${pkgs.system}.base ];
 
         env.ANDROID_SDK_ROOT = "${compo'.androidsdk}/libexec/android-sdk";
-
+        env.ANDROID_HOME = "${compo'.androidsdk}/libexec/android-sdk";
         packages = (with compo'; [
           androidsdk
           emulator

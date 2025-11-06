@@ -37,12 +37,16 @@
 .dashboard-root {
   margin: 0;
   padding: 12px 16px;
+  /* respect safe areas (iOS notch etc.) */
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 12px;
   height: 100vh;
   height: 100dvh;
+  height: 100svh;
   box-sizing: border-box;
 }
 .dashboard-header {
@@ -51,11 +55,23 @@
   justify-content: space-between;
   gap: 8px 12px;
   flex-wrap: wrap;
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: color-mix(in oklab, #ffffff 92%, transparent);
+  backdrop-filter: saturate(120%) blur(6px);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  padding-bottom: 6px;
   h2 { margin: 0; font-size: 1.1rem; }
 }
-.controls select {
-  margin-left: 0.5rem;
-  padding: 0.25rem 0.5rem;
+.controls { display: flex; align-items: center; gap: 8px; }
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls .mobile-only { display: none; }
+.controls select, .controls input[type="date"] {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
 }
 .cards {
   display: grid;
@@ -141,13 +157,39 @@
 @media (max-width: 800px) {
   .dashboard-main-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
+    /* Let rows size to content; we'll enforce sensible min-heights on cards */
+    grid-template-rows: auto auto auto auto;
     grid-template-areas:
       "kpis"
       "line"
       "stacked"
       "map";
+    gap: 10px;
   }
+
+  /* When user prefers map first on mobile, reorder areas */
+  .dashboard-main-grid.mobile-map-first {
+    grid-template-areas:
+      "kpis"
+      "map"
+      "line"
+      "stacked";
+  }
+
+  .dashboard-header { padding-top: 4px; padding-bottom: 8px; }
+  .dashboard-header h2 { font-size: 1rem; }
+  .controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .controls label { display: grid; gap: 4px; }
+  .controls .mobile-only { display: inline-flex; }
+  .controls select, .controls input[type="date"] { width: 100%; }
+
+  .cards.kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .card.small h3 { font-size: 0.78rem; }
+  .card.small .big { font-size: 1.1rem; }
+
+  /* Enforce comfortable viewing heights on charts and map */
+  .chart-card.fill { min-height: clamp(220px, 34dvh, 360px); }
+  .map-card.fill { min-height: clamp(260px, 42dvh, 420px); }
 }
 
 /* Ensure chart/map cards fill grid cell height */

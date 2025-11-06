@@ -1,3 +1,4 @@
+import { isCapacitor } from "../hooks/usePlatform";
 export type DataOutput = {
 	place?: string | null;
 	date?: string | null;
@@ -21,6 +22,13 @@ export type PlaceOutput = {
 };
 
 function getBaseUrl() {
+	// Allow runtime override without rebuild (useful on mobile): localStorage.apiBaseUrl
+	try {
+		const fromStorage = localStorage.getItem("apiBaseUrl");
+		if (fromStorage) return fromStorage.replace(/\/$/, "");
+	} catch {
+		// ignore storage errors
+	}
 	const env = (
 		import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }
 	).env;
@@ -30,7 +38,27 @@ function getBaseUrl() {
 
 async function apiFetch<T>(path: string): Promise<T> {
 	const url = `${getBaseUrl()}${path}`;
-	const res = await fetch(url);
+	if (isCapacitor()) {
+		// Use native HTTP to bypass CORS and handle self-signed/cleartext cases better.
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const w = window as unknown as any;
+		const Http = w?.Capacitor?.Plugins?.Http || w?.Capacitor?.Http;
+		if (Http && typeof Http.get === "function") {
+			const res = await Http.get({ url });
+			if (res.status < 200 || res.status >= 300) {
+				const text =
+					typeof res.data === "string"
+						? res.data
+						: JSON.stringify(res.data ?? {});
+				throw new Error(`API ${res.status}: ${text}`);
+			}
+			return res.data as T;
+		}
+		// Fallback if Http plugin unavailable
+		// CapacitorHttp returns { data, status, headers }
+		// Note: fetch may still hit CORS on device if backend doesn't allow capacitor://localhost
+	}
+	const res = await fetch(url, { credentials: "include" });
 	if (!res.ok) {
 		const text = await res.text().catch(() => "");
 		throw new Error(`API ${res.status}: ${text || res.statusText}`);
