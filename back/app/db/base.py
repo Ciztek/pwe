@@ -1,18 +1,12 @@
-import re
 from csv import DictReader
 from datetime import date, timedelta
 from pathlib import Path
 
+import aiosqlite
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import declarative_base
 
 from ..config import get_package_config
+from ..utils.wrapper import async_timed
 
 
 class Config(BaseModel):
@@ -22,124 +16,166 @@ class Config(BaseModel):
 
 settings = get_package_config(__package__, Config)
 
-Base = declarative_base()
+
+async def get_db():
+    """Async context manager that yields an aiosqlite connection."""
+    conn = await aiosqlite.connect(settings.uri)
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        yield conn
+    finally:
+        await conn.close()
 
 
-class TableNameProvider:
-    def __init_subclass__(cls, **kwargs):
-        cls.__tablename__ = re.sub(
-            r"(?<!^)(?=[A-Z])", "_", cls.__name__
-        ).lower()
-        super().__init_subclass__(**kwargs)
+@async_timed
+async def init_schema(conn: aiosqlite.Connection):
+    """Create tables with proper AUTOINCREMENT (independent counters)."""
+    await conn.executescript(
+        """
+    CREATE TABLE IF NOT EXISTS continent (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS country (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        continent_id INTEGER NOT NULL,
+        FOREIGN KEY (continent_id) REFERENCES continent(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS state (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        country_id INTEGER NOT NULL,
+        FOREIGN KEY (country_id) REFERENCES country(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS county (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        state_id INTEGER NOT NULL,
+        FOREIGN KEY (state_id) REFERENCES state(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS data_point (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        us_county_id TEXT,
+        us_county_name TEXT,
+        province TEXT,
+        country TEXT NOT NULL,
+        confirmed INTEGER NOT NULL,
+        deaths INTEGER NOT NULL,
+        recovered INTEGER,
+        active INTEGER,
+        incident_rate REAL,
+        case_fatality_ratio REAL,
+        lat REAL,
+        lon REAL
+    );
+    """
+    )
+    await conn.commit()
 
 
-engine = create_async_engine(settings.uri, echo=True)
-
-async_session = async_sessionmaker(
-    bind=engine,
-    expire_on_commit=False,
-    class_=AsyncSession,
-)
-
-
-async def get_session():
-    async with async_session() as session:
-        yield session
-
-
-async def fill_db(db: AsyncSession):
-    from .models import DataPoint
-
+@async_timed
+async def fill_db(conn: aiosqlite.Connection):
+    """Load CSV data efficiently without ORM overhead."""
+    data_path = Path(settings.data_path)
     start_date = date(2021, 1, 1)
     end_date = date(2023, 3, 9)
+
+    cursor = await conn.execute("SELECT DISTINCT date FROM data_point")
+    existing_dates = {row["date"] async for row in cursor}
+    await cursor.close()
+
     current = start_date
-
-    result = await db.execute(select(DataPoint.date).distinct())
-    existing_dates = {row for row in result.scalars().all()}
-
-    batch_size = 30
-    file_count = 0
+    batch_size = 0
+    total_inserted = 0
 
     while current <= end_date:
-        if current in existing_dates:
+        if str(current) in existing_dates:
             current += timedelta(days=1)
             continue
 
-        date_str = current.strftime("%m-%d-%Y")
-        csv_path = Path(
-            settings.data_path
-            + f"/csse_covid_19_data/csse_covid_19_daily_reports/{date_str}.csv"
+        csv_path = (
+            data_path
+            / f"csse_covid_19_data/csse_covid_19_daily_reports/{current:%m-%d-%Y}.csv"
         )
-        if csv_path.exists():
-            with open(csv_path, newline="", encoding="utf-8") as f:
-                reader = DictReader(f)
-                dict_records = [
-                    {
-                        "date": current,
-                        "us_county_id": r.get("FIPS") or None,
-                        "us_county_name": r.get("Admin2") or None,
-                        "province": r.get("Province_State")
-                        or r.get("Province/State")
-                        or None,
-                        "country": r.get("Country_Region")
-                        or r.get("Country/Region"),
-                        "confirmed": int(r.get("Confirmed") or 0),
-                        "deaths": int(r.get("Deaths") or 0),
-                        "recovered": (
-                            int(r.get("Recovered"))
-                            if r.get("Recovered") not in (None, "")
-                            else None
-                        ),
-                        "active": (
-                            int(r.get("Active"))
-                            if r.get("Active") not in (None, "")
-                            else None
-                        ),
-                        "incident_rate": (
-                            float(r.get("Incident_Rate"))
-                            if r.get("Incident_Rate") not in (None, "")
-                            else None
-                        ),
-                        "case_fatality_ratio": (
-                            float(r.get("Case_Fatality_Ratio"))
-                            if r.get("Case_Fatality_Ratio") not in (None, "")
-                            else None
-                        ),
-                        "lat": (
-                            float(r.get("Lat"))
-                            if r.get("Lat") not in (None, "")
-                            else None
-                        ),
-                        "long": (
-                            float(r.get("Long_"))
-                            if r.get("Long_") not in (None, "")
-                            else None
-                        ),
-                    }
-                    for r in reader
-                ]
+        if not csv_path.exists():
+            current += timedelta(days=1)
+            continue
 
-                if dict_records:
-                    await db.run_sync(
-                        lambda s: s.bulk_insert_mappings(
-                            DataPoint.__mapper__, dict_records
-                        )
-                    )
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = DictReader(f)
+            rows = [
+                (
+                    str(current),
+                    r.get("FIPS") or None,
+                    r.get("Admin2") or None,
+                    r.get("Province_State") or r.get("Province/State") or None,
+                    r.get("Country_Region") or r.get("Country/Region"),
+                    int(r.get("Confirmed") or 0),
+                    int(r.get("Deaths") or 0),
+                    (
+                        int(r.get("Recovered") or 0)
+                        if r.get("Recovered") not in (None, "")
+                        else None
+                    ),
+                    (
+                        int(r.get("Active") or 0)
+                        if r.get("Active") not in (None, "")
+                        else None
+                    ),
+                    (
+                        float(r.get("Incident_Rate") or 0)
+                        if r.get("Incident_Rate") not in (None, "")
+                        else None
+                    ),
+                    (
+                        float(r.get("Case_Fatality_Ratio") or 0)
+                        if r.get("Case_Fatality_Ratio") not in (None, "")
+                        else None
+                    ),
+                    float(r.get("Lat") or 0),
+                    float(r.get("Long_") or 0),
+                )
+                for r in reader
+            ]
 
-        file_count += 1
-        if file_count % batch_size == 0:
-            await db.commit()
+        await conn.executemany(
+            """
+            INSERT INTO data_point (
+                date, us_county_id, us_county_name, province, country,
+                confirmed, deaths, recovered, active,
+                incident_rate, case_fatality_ratio, lat, lon
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            rows,
+        )
+
+        total_inserted += len(rows)
+        batch_size += 1
+        if batch_size % 30 == 0:
+            print(
+                f"[fill_db] Done processing data for batch: {current - timedelta(days=30)} to {current}"
+            )
+            await conn.commit()
 
         current += timedelta(days=1)
 
-    await db.commit()
+    print(
+        f"[fill_db] Done processing data for batch: {current - timedelta(days=batch_size)} to {current}, duration {batch_size} days."
+    )
+    await conn.commit()
+    print(f"[fill_db] Inserted {total_inserted} data rows.")
 
 
-async def place_db(db: AsyncSession):
-    from sqlalchemy import distinct, select
-
-    from .models import Continent, Country, County, DataPoint, State
-
+@async_timed
+async def place_db(conn: aiosqlite.Connection):
+    """Generate hierarchical place tables based on distinct data points."""
     continent_map = {
         "US": "North America",
         "Canada": "North America",
@@ -157,102 +193,79 @@ async def place_db(db: AsyncSession):
         "New Zealand": "Oceania",
         "South Africa": "Africa",
         "Egypt": "Africa",
-        "Other": "Unknown",
     }
 
-    print("[place_db] Building location hierarchy...")
+    print("[place_db] Building place hierarchy...")
 
-    continents_cache: dict[str, Continent] = {
-        getattr(c, "name"): c
-        for c in (await db.execute(select(Continent))).scalars().all()
-    }
-
-    countries_cache: dict[tuple[str, str], Country] = {}
-    for country in (await db.execute(select(Country))).scalars().all():
-        continent = await db.get(Continent, country.continent_id)
-        if continent:
-            countries_cache[
-                (getattr(continent, "name"), getattr(country, "name"))
-            ] = country
-
-    states_cache: dict[tuple[str, str], State] = {}
-    for state in (await db.execute(select(State))).scalars().all():
-        country = await db.get(Country, state.country_id)
-        if country:
-            states_cache[
-                (getattr(country, "name"), getattr(state, "name"))
-            ] = state
-
-    counties_cache: dict[tuple[str, str], County] = {}
-    for county in (await db.execute(select(County))).scalars().all():
-        state = await db.get(State, county.state_id)
-        if state:
-            counties_cache[
-                (getattr(state, "name"), getattr(county, "name"))
-            ] = county
-
-    # Fetch distinct country/province/county combos
-    result = await db.execute(
-        select(
-            distinct(DataPoint.country),
-            DataPoint.province,
-            DataPoint.us_county_name,
-        )
+    cursor = await conn.execute(
+        """
+        SELECT DISTINCT country, province, us_county_name
+        FROM data_point
+    """
     )
-    rows = result.all()
+    rows = await cursor.fetchall()
 
-    # Process rows into hierarchy
     for country, province, county in rows:
         if not country:
             continue
 
-        if province == "Unknown":
-            province = None
+        province = None if province == "Unknown" else province
+        continent = continent_map.get(country, "Unknown")
 
-        continent_name = continent_map.get(country, "Unknown")
+        # Continent
+        await conn.execute(
+            "INSERT OR IGNORE INTO continent (name) VALUES (?)", (continent,)
+        )
+        continent_id = (
+            await (
+                await conn.execute(
+                    "SELECT id FROM continent WHERE name = ?", (continent,)
+                )
+            ).fetchone()
+        )[0]
 
-        # --- Continent ---
-        continent = continents_cache.get(continent_name)
-        if not continent:
-            continent = Continent(name=continent_name)
-            db.add(continent)
-            await db.flush()
-            continents_cache[continent_name] = continent
+        # Country
+        await conn.execute(
+            "INSERT OR IGNORE INTO country (name, continent_id) VALUES (?, ?)",
+            (country, continent_id),
+        )
+        country_id = (
+            await (
+                await conn.execute(
+                    "SELECT id FROM country WHERE name = ?", (country,)
+                )
+            ).fetchone()
+        )[0]
 
-        # --- Country ---
-        country_key = (getattr(continent, "name"), country)
-        country_obj = countries_cache.get(country_key)
-        if not country_obj:
-            country_obj = Country(name=country, continent_id=continent.id)
-            db.add(country_obj)
-            await db.flush()
-            countries_cache[country_key] = country_obj
-
-        # --- State / Province ---
-        state_obj = None
+        # State
         if province:
-            state_key = (country, province)
-            state_obj = states_cache.get(state_key)
-            if not state_obj:
-                state_obj = State(name=province, country_id=country_obj.id)
-                db.add(state_obj)
-                await db.flush()
-                states_cache[state_key] = state_obj
+            await conn.execute(
+                "INSERT OR IGNORE INTO state (name, country_id) VALUES (?, ?)",
+                (province, country_id),
+            )
+            state_id = (
+                await (
+                    await conn.execute(
+                        "SELECT id FROM state WHERE name = ?", (province,)
+                    )
+                ).fetchone()
+            )[0]
 
-        # --- County ---
-        if county and state_obj and country == "US":
-            county_key = (province, county)
-            if county_key not in counties_cache:
-                county_obj = County(name=county, state_id=state_obj.id)
-                db.add(county_obj)
-                counties_cache[county_key] = county_obj
+            # County
+            if county and country == "US":
+                await conn.execute(
+                    "INSERT OR IGNORE INTO county (name, state_id) VALUES (?, ?)",
+                    (county, state_id),
+                )
 
-    await db.commit()
+    await conn.commit()
     print("[place_db] Hierarchical place data updated successfully.")
 
 
+@async_timed
 async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await fill_db(AsyncSession(conn))
-        await place_db(AsyncSession(conn))
+    async with aiosqlite.connect(settings.uri) as conn:
+        conn.row_factory = aiosqlite.Row
+        await init_schema(conn)
+        await fill_db(conn)
+        await place_db(conn)
