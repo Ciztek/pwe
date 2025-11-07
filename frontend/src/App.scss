@@ -173,8 +173,8 @@
 @media (max-width: 800px) {
   .dashboard-main-grid {
     grid-template-columns: 1fr;
-    /* Let rows size to content; we'll enforce sensible min-heights on cards */
-    grid-template-rows: auto auto auto auto;
+    /* Make the last row (map) expand to fill remaining space */
+    grid-template-rows: auto auto auto minmax(0, 1fr);
     grid-template-areas:
       "kpis"
       "line"
@@ -203,9 +203,21 @@
   .card.small h3 { font-size: 0.78rem; }
   .card.small .big { font-size: 1.1rem; }
 
+  /* Flatten the UI on mobile: remove white boxes and heavy shadows */
+  .card.small,
+  .chart-card,
+  .map-card {
+    background: transparent;
+    box-shadow: none;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .chart-card { padding: 0; }
+  .map-card { padding: 0; }
+
   /* Enforce comfortable viewing heights on charts and map */
   .chart-card.fill { min-height: clamp(220px, 34dvh, 360px); }
-  .map-card.fill { min-height: clamp(260px, 42dvh, 420px); }
+  .map-card.fill { min-height: clamp(300px, 52dvh, 520px); display: flex; }
+  .map-card.fill > div { flex: 1 1 auto; }
 }
 
 /* Ensure chart/map cards fill grid cell height */
