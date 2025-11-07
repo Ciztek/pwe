@@ -14,10 +14,21 @@ export type SeriesPoint = {
 	recovered: number;
 };
 
-export type PlaceOutput = {
-	countries: string[];
-	state: string[];
-	us_counties: string[];
+// New backend places response: { continents: [ { id, name, countries: [ { id, name, states: [ { id, name, counties?: [ { id, name } ] } ] } ] } ] }
+export type PlacesResponse = {
+	continents: Array<{
+		id: number;
+		name: string;
+		countries: Array<{
+			id: number;
+			name: string;
+			states: Array<{
+				id: number;
+				name: string;
+				counties?: Array<{ id: number; name: string }>;
+			}>;
+		}>;
+	}>;
 };
 
 function getBaseUrl() {
@@ -25,7 +36,8 @@ function getBaseUrl() {
 		import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }
 	).env;
 	const fromEnv = env?.VITE_API_BASE_URL?.replace(/\/$/, "");
-	return fromEnv || "http://127.0.0.1:8000/api";
+	// Base should be the server root; we will prefix endpoints with /filter
+	return fromEnv || "http://127.0.0.1:8000";
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
@@ -45,9 +57,10 @@ export async function fetchTotalsForDate(
 	isoDate: string,
 	country?: string,
 ): Promise<DataOutput | null> {
-	const path = country
-		? `/data/${isoDate}/${encodeURIComponent(country)}`
-		: `/data/${isoDate}`;
+	const params = new URLSearchParams();
+	params.set("date", isoDate);
+	if (country && country !== "World") params.set("country", country);
+	const path = `/filter/data?${params.toString()}`;
 	const key = `${isoDate}|${country ?? "_all"}`;
 	if (!dailyCache.has(key)) {
 		dailyCache.set(
@@ -147,17 +160,24 @@ export async function fetchTotalsRange(
 	end: string,
 	country?: string,
 ): Promise<DataOutput> {
-	const path = country
-		? `/data/${start}/${end}/${encodeURIComponent(country)}`
-		: `/data/${start}/${end}`;
-	return apiFetch<DataOutput>(path);
+	const params = new URLSearchParams();
+	params.set("start_date", start);
+	params.set("end_date", end);
+	if (country && country !== "World") params.set("country", country);
+	return apiFetch<DataOutput>(`/filter/data?${params.toString()}`);
 }
 
-export async function fetchPlaces(): Promise<PlaceOutput> {
-	return apiFetch<PlaceOutput>("/places");
+export async function fetchPlaces(): Promise<PlacesResponse> {
+	return apiFetch<PlacesResponse>("/filter/places");
 }
 
 export async function fetchCountries(): Promise<string[]> {
 	const po = await fetchPlaces();
-	return Array.isArray(po?.countries) ? po.countries : [];
+	const names = new Set<string>();
+	for (const cont of po?.continents ?? []) {
+		for (const c of cont.countries ?? []) {
+			if (c?.name) names.add(c.name);
+		}
+	}
+	return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
