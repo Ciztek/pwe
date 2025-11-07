@@ -36,7 +36,7 @@ app = FastAPI(docs_url="/docs", lifespan=lifespan)
 async def log_timing_info(request: Request, call_next):
     start_time = time.time()
     start_date = datetime.fromtimestamp(start_time).isoformat()
-    print(f"[START] {request.method} {request.url.path} at {start_date}")
+    print(f"[START] {request.method} {request.url} at {start_date}")
 
     response = await call_next(request)
 
@@ -49,8 +49,10 @@ async def log_timing_info(request: Request, call_next):
     response.headers["X-End-Time"] = end_date
     response.headers["X-Duration-Seconds"] = f"{duration * 1000:.2f} ms"
 
-    print(f"[END]   {request.method} {request.url.path} at {end_date}")
-    print(f"[DELTA] {duration * 1000:.2f} ms")
+    print(f"[END]   {request.method} {request.url} at {end_date}")
+    print(
+        f"[DELTA] {request.method} {request.url}    {duration * 1000:.2f} ms"
+    )
     return response
 
 
