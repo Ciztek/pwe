@@ -1,0 +1,18 @@
+CONTINENT_MAP = {
+    "US": "North America",
+    "Canada": "North America",
+    "Mexico": "North America",
+    "Brazil": "South America",
+    "Argentina": "South America",
+    "France": "Europe",
+    "Germany": "Europe",
+    "Italy": "Europe",
+    "Spain": "Europe",
+    "China": "Asia",
+    "Japan": "Asia",
+    "India": "Asia",
+    "Australia": "Oceania",
+    "New Zealand": "Oceania",
+    "South Africa": "Africa",
+    "Egypt": "Africa",
+}

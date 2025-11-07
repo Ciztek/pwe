@@ -1,0 +1,39 @@
+# Node.js / frontend
+node_modules/
+# local caches and build output
+dist/
+.vite/
+build/
+.build/
+.out/
+.cache/
+# pnpm store and temp
+.pnpm-debug.log*
+# environment / local secrets
+.env
+.env.*.local
+# Expo / mobile local files
+.expo/
+.expo-shared/
+# Tauri & Rust build outputs
+src-tauri/target/
+.tauri-tools/
+# Capacitor/Android / iOS build outputs (ignore only build artifacts, keep project sources)
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/*.keystore
+android/keystore.env
+ios/Pods/
+ios/DerivedData/
+ios/build/
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
