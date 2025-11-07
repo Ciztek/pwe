@@ -21,8 +21,6 @@ export default function ControlsBar({
 	places,
 	start,
 	end,
-	mobileOrder = "charts",
-	onMobileOrderChange,
 	mobileView = "kpi",
 	onMobileViewChange,
 	onPlaceChange,
@@ -58,18 +56,6 @@ export default function ControlsBar({
 						value={end}
 						onChange={(e) => onEndChange(e.target.value)}
 					/>
-				</label>
-				<label className="mobile-only">
-					Mobile layout:
-					<select
-						value={mobileOrder}
-						onChange={(e) =>
-							onMobileOrderChange?.(e.target.value as "charts" | "map")
-						}
-					>
-						<option value="charts">Charts first</option>
-						<option value="map">Map first</option>
-					</select>
 				</label>
 				<label className="mobile-only">
 					View:

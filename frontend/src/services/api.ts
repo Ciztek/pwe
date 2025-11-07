@@ -31,12 +31,14 @@ export type PlacesResponse = {
 	}>;
 };
 
-function getBaseUrl() {
+let CACHED_BASE: string | null = null;
+
+function getBaseUrlCandidates(): string[] {
 	const env = (
 		import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }
 	).env;
 	const fromEnv = env?.VITE_API_BASE_URL?.replace(/\/$/, "");
-	if (fromEnv) return fromEnv;
+	if (fromEnv) return [fromEnv];
 	// Detect Capacitor Android and use emulator host alias if no env provided
 	try {
 		const w = window as unknown as {
@@ -45,32 +47,45 @@ function getBaseUrl() {
 		const cap = w?.Capacitor;
 		const platform: string | undefined = cap?.getPlatform?.() || cap?.platform;
 		if (platform === "android") {
-			// For Android emulator: host machine is 10.0.2.2
-			return "http://10.0.2.2:8000";
+			// Try emulator alias and adb reverse loopback
+			return [
+				"http://10.0.2.2:8000", // emulator host
+				"http://127.0.0.1:8000", // physical device via adb reverse tcp:8000:8000
+			];
 		}
 	} catch {
 		/* ignore */
 	}
 	// Fallback for web/desktop
-	return "http://127.0.0.1:8000";
+	return ["http://127.0.0.1:8000"];
 }
 
+// Note: we no longer use getBaseUrl directly; apiFetch iterates candidates and caches.
+
 async function apiFetch<T>(path: string): Promise<T> {
-	const base = getBaseUrl();
-	const url = `${base}${path}`;
-	try {
-		const res = await fetch(url);
-		if (!res.ok) {
-			const text = await res.text().catch(() => "");
-			// Helpful for mobile 404 diagnostics
-			console.warn(`[api] ${res.status} for`, url, text || res.statusText);
-			throw new Error(`API ${res.status}: ${text || res.statusText}`);
+	const candidates = CACHED_BASE ? [CACHED_BASE] : getBaseUrlCandidates();
+	let lastErr: unknown = null;
+	for (const base of candidates) {
+		const url = `${base}${path}`;
+		try {
+			const res = await fetch(url);
+			if (!res.ok) {
+				const text = await res.text().catch(() => "");
+				console.warn(`[api] ${res.status} for`, url, text || res.statusText);
+				lastErr = new Error(`API ${res.status}: ${text || res.statusText}`);
+				continue; // try next candidate
+			}
+			if (!CACHED_BASE) CACHED_BASE = base; // cache working base
+			return res.json() as Promise<T>;
+		} catch (e) {
+			console.warn(`[api] fetch failed for`, url, e);
+			lastErr = e;
+			continue;
 		}
-		return res.json() as Promise<T>;
-	} catch (e) {
-		console.warn(`[api] fetch failed for`, url, e);
-		throw e;
 	}
+	throw lastErr instanceof Error
+		? lastErr
+		: new Error(String(lastErr ?? "Network error"));
 }
 
 // Simple memo cache for daily totals to avoid refetching the same date/country
