@@ -8,6 +8,8 @@ type Props = {
 	end: string;
 	mobileOrder?: "charts" | "map";
 	onMobileOrderChange?: (v: "charts" | "map") => void;
+	mobileView?: "kpi" | "map";
+	onMobileViewChange?: (v: "kpi" | "map") => void;
 	onPlaceChange: (v: string) => void;
 	onStartChange: (v: string) => void;
 	onEndChange: (v: string) => void;
@@ -21,6 +23,8 @@ export default function ControlsBar({
 	end,
 	mobileOrder = "charts",
 	onMobileOrderChange,
+	mobileView = "kpi",
+	onMobileViewChange,
 	onPlaceChange,
 	onStartChange,
 	onEndChange,
@@ -65,6 +69,18 @@ export default function ControlsBar({
 					>
 						<option value="charts">Charts first</option>
 						<option value="map">Map first</option>
+					</select>
+				</label>
+				<label className="mobile-only">
+					View:
+					<select
+						value={mobileView}
+						onChange={(e) =>
+							onMobileViewChange?.(e.target.value as "kpi" | "map")
+						}
+					>
+						<option value="kpi">KPIs & Charts</option>
+						<option value="map">Map</option>
 					</select>
 				</label>
 			</div>

@@ -67,11 +67,27 @@
 .controls { display: flex; align-items: center; gap: 8px; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
 .controls .mobile-only { display: none; }
-.controls select, .controls input[type="date"] {
-  padding: 0.35rem 0.5rem;
+.controls select,
+.controls input[type="date"],
+.controls input[type="text"],
+.controls input[type="number"] {
+  padding: 0.45rem 0.6rem;
   border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #fff;
+  color: #111;
+  color-scheme: light; /* ensure readable system pickers in dark mode */
+}
+/* Improve contrast for options in dark mode dropdowns */
+@media (prefers-color-scheme: dark) {
+  .controls select,
+  .controls input[type="date"],
+  .controls input[type="text"],
+  .controls input[type="number"] {
+    background: #ffffff;
+    color: #111111;
+    border-color: #d1d5db;
+  }
 }
 .cards {
   display: grid;

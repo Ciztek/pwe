@@ -23,6 +23,7 @@ export default function Dashboard() {
 	const [places, setPlaces] = useState<string[]>(["World"]);
 	const [start, setStart] = useState<string>("2021-01-01");
 	const [end, setEnd] = useState<string>("2021-01-30");
+
 	// Mobile layout preference: 'charts' | 'map'
 	const [mobileOrder, setMobileOrder] = useState<"charts" | "map">(() => {
 		if (typeof window !== "undefined") {
@@ -32,6 +33,20 @@ export default function Dashboard() {
 		}
 		return "charts";
 	});
+
+	// Mobile view preference: 'kpi' | 'map'
+	const [mobileView, setMobileView] = useState<"kpi" | "map">(() => {
+		if (typeof window !== "undefined") {
+			return (localStorage.getItem("mobileView") as "kpi" | "map") || "kpi";
+		}
+		return "kpi";
+	});
+
+	const [isMobile, setIsMobile] = useState<boolean>(() =>
+		typeof window !== "undefined"
+			? window.matchMedia && window.matchMedia("(max-width: 800px)").matches
+			: false,
+	);
 
 	const [series, setSeries] = useState<SeriesPoint[]>([]);
 	const [totals, setTotals] = useState({
@@ -53,6 +68,36 @@ export default function Dashboard() {
 			// ignore storage issues
 		}
 	}, [mobileOrder]);
+
+	// Persist mobile view preference
+	useEffect(() => {
+		try {
+			localStorage.setItem("mobileView", mobileView);
+		} catch {
+			// ignore
+		}
+	}, [mobileView]);
+
+	// Track viewport to decide whether to render single-page mobile views
+	useEffect(() => {
+		if (typeof window === "undefined" || !window.matchMedia) return;
+		const mq = window.matchMedia("(max-width: 800px)");
+		const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+			setIsMobile("matches" in e ? e.matches : (e as MediaQueryList).matches);
+		};
+		// Initial sync and subscribe
+		handler(mq as unknown as MediaQueryList);
+		mq.addEventListener?.(
+			"change",
+			handler as (e: MediaQueryListEvent) => void,
+		);
+		return () => {
+			mq.removeEventListener?.(
+				"change",
+				handler as (e: MediaQueryListEvent) => void,
+			);
+		};
+	}, []);
 
 	useEffect(() => {
 		let mounted = true;
@@ -149,6 +194,8 @@ export default function Dashboard() {
 				end={end}
 				mobileOrder={mobileOrder}
 				onMobileOrderChange={setMobileOrder}
+				mobileView={mobileView}
+				onMobileViewChange={setMobileView}
 				onPlaceChange={setPlace}
 				onStartChange={setStart}
 				onEndChange={setEnd}
@@ -161,6 +208,15 @@ export default function Dashboard() {
 					<p>Loading data…</p>
 				) : error ? (
 					<p style={{ color: "#ff6b6b" }}>Error: {error}</p>
+				) : isMobile ? (
+					mobileView === "map" ? (
+						<MapPanel points={mapPoints} />
+					) : (
+						<>
+							<KpiCards totals={totals} />
+							<ChartsGrid line={lineSeries} stacked={stacked} />
+						</>
+					)
 				) : (
 					<>
 						<KpiCards totals={totals} />

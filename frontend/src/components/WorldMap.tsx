@@ -39,7 +39,13 @@ export default function WorldMap({
 	useEffect(() => {
 		let mounted = true;
 		(async () => {
-			const L = await ensureLeaflet();
+			let L: any;
+			try {
+				L = await ensureLeaflet();
+			} catch (e) {
+				console.warn("Leaflet failed to load:", e);
+				return;
+			}
 			if (!mounted || !rootRef.current) return;
 			if (!mapRef.current) {
 				mapRef.current = L.map(rootRef.current, {
@@ -89,6 +95,20 @@ export default function WorldMap({
 				c.on("mouseout", () => c.closePopup());
 			}
 			g.addTo(mapRef.current);
+
+			// Ensure map sizes correctly after being mounted in responsive containers
+			setTimeout(() => {
+				try {
+					if (
+						mapRef.current &&
+						typeof mapRef.current.invalidateSize === "function"
+					) {
+						mapRef.current.invalidateSize({ animate: false });
+					}
+				} catch {
+					// ignore
+				}
+			}, 0);
 
 			// Fit map view to markers gracefully
 			if (points.length >= 2) {
