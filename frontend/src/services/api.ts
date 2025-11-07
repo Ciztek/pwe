@@ -1,4 +1,3 @@
-import { isCapacitor } from "../hooks/usePlatform";
 export type DataOutput = {
 	place?: string | null;
 	date?: string | null;
@@ -33,49 +32,45 @@ export type PlacesResponse = {
 };
 
 function getBaseUrl() {
-	// Allow runtime override without rebuild (useful on mobile): localStorage.apiBaseUrl
-	try {
-		const fromStorage = localStorage.getItem("apiBaseUrl");
-		if (fromStorage) return fromStorage.replace(/\/$/, "");
-	} catch {
-		// ignore storage errors
-	}
 	const env = (
 		import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }
 	).env;
 	const fromEnv = env?.VITE_API_BASE_URL?.replace(/\/$/, "");
-	// Base should be the server root; we will prefix endpoints with /filter
-	return fromEnv || "http://127.0.0.1:8000";
+	if (fromEnv) return fromEnv;
+	// Detect Capacitor Android and use emulator host alias if no env provided
+	try {
+		const w = window as unknown as {
+			Capacitor?: { getPlatform?: () => string; platform?: string };
+		};
+		const cap = w?.Capacitor;
+		const platform: string | undefined = cap?.getPlatform?.() || cap?.platform;
+		if (platform === "android") {
+			// For Android emulator: host machine is 10.0.2.2
+			return "http://10.0.2.2:8000";
+		}
+	} catch {
+		/* ignore */
+	}
+	// Fallback for web/desktop
+	return "http://127.0.0.1:8000";
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-	const url = `${getBaseUrl()}${path}`;
-	if (isCapacitor()) {
-		// Use native HTTP to bypass CORS and handle self-signed/cleartext cases better.
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const w = window as unknown as any;
-		const Http = w?.Capacitor?.Plugins?.Http || w?.Capacitor?.Http;
-		if (Http && typeof Http.get === "function") {
-			const res = await Http.get({ url });
-			if (res.status < 200 || res.status >= 300) {
-				const text =
-					typeof res.data === "string"
-						? res.data
-						: JSON.stringify(res.data ?? {});
-				throw new Error(`API ${res.status}: ${text}`);
-			}
-			return res.data as T;
+	const base = getBaseUrl();
+	const url = `${base}${path}`;
+	try {
+		const res = await fetch(url);
+		if (!res.ok) {
+			const text = await res.text().catch(() => "");
+			// Helpful for mobile 404 diagnostics
+			console.warn(`[api] ${res.status} for`, url, text || res.statusText);
+			throw new Error(`API ${res.status}: ${text || res.statusText}`);
 		}
-		// Fallback if Http plugin unavailable
-		// CapacitorHttp returns { data, status, headers }
-		// Note: fetch may still hit CORS on device if backend doesn't allow capacitor://localhost
+		return res.json() as Promise<T>;
+	} catch (e) {
+		console.warn(`[api] fetch failed for`, url, e);
+		throw e;
 	}
-	const res = await fetch(url, { credentials: "include" });
-	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		throw new Error(`API ${res.status}: ${text || res.statusText}`);
-	}
-	return res.json() as Promise<T>;
 }
 
 // Simple memo cache for daily totals to avoid refetching the same date/country
