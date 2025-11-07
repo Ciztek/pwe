@@ -1,4 +1,6 @@
-from .base import async_session, get_session, init_db
-from .models import CovidData
+from .base import get_db, init_db
 
-__all__ = ("get_session", "init_db", "async_session", "CovidData")
+__all__ = (
+    "get_db",
+    "init_db",
+)
