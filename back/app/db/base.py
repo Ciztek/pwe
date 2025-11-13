@@ -3,10 +3,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from aiosqlite import Connection, Row, connect
+from countryinfo import CountryInfo
 from pydantic import BaseModel
 
 from ..config import get_package_config
-from ..utils.continent_map import CONTINENT_MAP
 from ..utils.wrapper import async_timed
 
 
@@ -188,12 +188,24 @@ async def place_db(conn: Connection):
     )
     rows = await cursor.fetchall()
 
+    country_cache = {}
+
     for country, province, county in rows:
         if not country:
             continue
 
         province = None if province == "Unknown" else province
-        continent = CONTINENT_MAP.get(country, "Unknown")
+
+        # --- Use CountryInfo to detect continent ---
+        if country not in country_cache:
+            try:
+                info = CountryInfo(country).get_location_info()
+                continent = info.region() or info.subregion() or "Unknown"
+            except Exception:
+                continent = "Unknown"
+            country_cache[country] = continent
+
+        continent = country_cache[country]
 
         # Continent
         await conn.execute(
