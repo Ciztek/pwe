@@ -1,19 +1,19 @@
-{ lib
-, buildNpmPackage
-, nodejs_20
-, pnpm
-, rustup
-, pkg-config
-, openssl
-, gtk3
-, glib
-, webkitgtk_4_1
-, jdk17
-, gradle
-, gcc
-, gnumake
+{
+  lib,
+  buildNpmPackage,
+  nodejs_20,
+  pnpm,
+  rustup,
+  pkg-config,
+  openssl,
+  gtk3,
+  glib,
+  webkitgtk_4_1,
+  jdk17,
+  gradle,
+  gcc,
+  gnumake,
 }:
-
 buildNpmPackage {
   pname = "epicovid-frontend";
   version = "0.0.1";
@@ -64,7 +64,7 @@ buildNpmPackage {
   meta = {
     description = "Frontend of the EpiCovid project (React + Capacitor + Tauri)";
     license = lib.licenses.bsd3;
-    maintainers = with lib.maintainers; [ sigmanificient ];
+    maintainers = with lib.maintainers; [ciznia];
     platforms = lib.platforms.all;
     mainProgram = "vite";
   };

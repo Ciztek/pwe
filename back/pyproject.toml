@@ -15,6 +15,7 @@ dependencies = [
   "aiosqlite",
   "pydantic",
   "passlib[bcrypt]",
+  "countryinfo",
 ]
 
 [project.scripts]
