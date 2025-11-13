@@ -19,11 +19,15 @@ async def filter_data(db=Depends(get_db)):
             json_object(
                 'id', c.id,
                 'name', c.name,
+                'lat', c.lat,
+                'lon', c.lon,
                 'countries', (
                     SELECT json_group_array(
                         json_object(
                             'id', co.id,
                             'name', co.name,
+                            'lat', co.lat,
+                            'lon', co.lon,
                             'states', (
                                 SELECT json_group_array(
                                     CASE
@@ -31,11 +35,15 @@ async def filter_data(db=Depends(get_db)):
                                             json_object(
                                                 'id', s.id,
                                                 'name', s.name,
+                                                'lat', s.lat,
+                                                'lon', s.lon,
                                                 'counties', (
                                                     SELECT json_group_array(
                                                         json_object(
                                                             'id', ca.id,
-                                                            'name', ca.name
+                                                            'name', ca.name,
+                                                            'lat', ca.lat,
+                                                            'lon', ca.lon
                                                         )
                                                     )
                                                     FROM county ca
