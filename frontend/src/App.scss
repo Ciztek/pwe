@@ -48,6 +48,7 @@
   height: 100dvh;
   height: 100svh;
   box-sizing: border-box;
+  overflow: hidden; /* prevent page scroll; inner panels manage their own overflow */
 }
 .dashboard-header {
   display: flex;
@@ -58,11 +59,30 @@
   position: sticky;
   top: env(safe-area-inset-top, 0px);
   z-index: 10;
-  background: color-mix(in oklab, #ffffff 92%, transparent);
-  backdrop-filter: saturate(120%) blur(6px);
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  background: transparent; // removed white/translucent background
+  backdrop-filter: none; // no blur
+  border-bottom: none; // blend with dark canvas
   padding-bottom: 6px;
   h2 { margin: 0; font-size: 1.1rem; }
+.dashboard-title { cursor: pointer; user-select: none; transition: color 0.18s ease, transform 0.18s ease; }
+.dashboard-title:hover { color: #5da0ff; }
+.dashboard-title:active { transform: scale(0.97); }
+.dashboard-title:focus { outline: 2px solid #5da0ff; outline-offset: 3px; }
+
+/* Slim progress bar below header */
+.progress-container {
+  height: 6px;
+  width: 100%;
+  background: #2a2f37;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #2962ff, #5da0ff);
+  transition: width 0.25s ease;
+}
 }
 .controls { display: flex; align-items: center; gap: 8px; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
@@ -72,11 +92,12 @@
 .controls input[type="text"],
 .controls input[type="number"] {
   padding: 0.45rem 0.6rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #3a3d44;
   border-radius: 8px;
-  background: #fff;
-  color: #111;
-  color-scheme: light; /* ensure readable system pickers in dark mode */
+  background: #1d1f23; // dark control background
+  color: #f5f7fa; // high contrast text
+  box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  transition: background 0.18s ease, border-color 0.18s ease;
 }
 /* Improve contrast for options in dark mode dropdowns */
 @media (prefers-color-scheme: dark) {
@@ -84,10 +105,38 @@
   .controls input[type="date"],
   .controls input[type="text"],
   .controls input[type="number"] {
-    background: #ffffff;
-    color: #111111;
-    border-color: #d1d5db;
+    background: #1d1f23;
+    color: #f5f7fa;
+    border-color: #4a4e55;
   }
+}
+
+// Hover / focus states for dark inputs
+.controls select:hover,
+.controls input[type="date"]:hover,
+.controls input[type="text"]:hover,
+.controls input[type="number"]:hover {
+  background: #24272c;
+}
+
+.controls select:focus,
+.controls input[type="date"]:focus,
+.controls input[type="text"]:focus,
+.controls input[type="number"]:focus {
+  outline: 2px solid #5da0ff;
+  outline-offset: 2px;
+  border-color: #5da0ff;
+}
+
+.controls select:disabled,
+.controls input[type="date"]:disabled,
+.controls input[type="text"]:disabled,
+.controls input[type="number"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #191b1e;
+  color: #8a9099;
+  border-color: #2a2d31;
 }
 .cards {
   display: grid;
@@ -105,22 +154,27 @@
 }
 
 .card.small {
-  background: #fff;
-  padding: 0.6rem 0.75rem;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  background: #23272f; /* dark neutral background */
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.5);
   display: flex;
   flex-direction: column;
   justify-content: center;
+  color: #f5f7fa;
   h3 {
-    margin: 0 0 0.15rem 0;
-    font-size: 0.8rem;
-    color: #333;
+    margin: 0 0 0.2rem 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #e2e6ec;
   }
   .big {
-    font-size: 1.25rem;
-    line-height: 1.2;
+    font-size: 1.32rem;
+    line-height: 1.15;
     font-weight: 700;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
   }
 }
 
@@ -131,13 +185,14 @@
   height: 100%;
 }
 .chart-card {
-  background: #fff;
-  padding: 6px 8px;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  background: #23272f; /* dark card */
+  padding: 8px 10px;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.55);
   display: flex;
   flex-direction: column;
-  h4 { margin: 0 0 6px 4px; }
+  color: #e2e6ec;
+  h4 { margin: 0 0 8px 4px; font-size: 0.85rem; font-weight: 600; color: #ffffff; }
 }
 
 @media (min-width: 900px) {
@@ -147,23 +202,26 @@
 /* Main grid */
 .dashboard-main-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.6fr);
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1.2fr);
   grid-template-areas:
     "kpis kpis"
     "line stacked"
-    "map map";
+    "map leaderboard";
   gap: 8px;
   min-height: 0;
+  height: 100%;
 }
 
 /* Map card styling */
 .map-card {
-  background: #fff;
-  padding: 4px;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  background: #23272f;
+  padding: 6px;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.55);
   display: flex;
+  overflow: hidden;
+  min-height: 0;
 }
 
 /* KPIs area tweaks */
@@ -185,12 +243,13 @@
 
   /* When user prefers map first on mobile, reorder areas */
   .dashboard-main-grid.mobile-map-first {
-    grid-template-areas:
-      "kpis"
-      "map"
-      "line"
-      "stacked";
-  }
+      grid-template-areas:
+        "kpis"
+        "map"
+        "line"
+        "stacked";
+    }
+  /* Mobile single-column: leaderboard rendered in its own view */
 
   .dashboard-header { padding-top: 4px; padding-bottom: 8px; }
   .dashboard-header h2 { font-size: 1rem; }
@@ -215,7 +274,73 @@
 /* Per-card color overrides */
 .card.confirmed { border-left: 4px solid rgba(0, 123, 255, 0.9); --text-color: #0b1d3a; }
 .card.deaths { border-left: 4px solid rgba(220, 53, 69, 0.9); --text-color: #3a0b0b; }
-.card.recovered { border-left: 4px solid rgba(40, 167, 69, 0.9); --text-color: #063a12; }
+/* Removed recovered styling (data no longer fetched) */
+
+/* Leaderboard styling */
+.leaderboard-card {
+  background: #23272f;
+/* Recharts dark theme overrides */
+.chart-card .recharts-cartesian-grid line { stroke: rgba(255,255,255,0.12); }
+.chart-card .recharts-xAxis .recharts-text,
+.chart-card .recharts-yAxis .recharts-text { fill: #e2e6ec; font-size: 0.7rem; }
+.chart-card .recharts-legend-item text { fill: #f5f7fa; }
+.chart-card .recharts-tooltip-label { color: #ffffff; }
+.chart-card .recharts-tooltip-item-list .recharts-tooltip-item { color: #e2e6ec; }
+
+/* Leaflet dark adjustments: ensure attribution and controls visible */
+.map-card .leaflet-container { background: #23272f; }
+.map-card .leaflet-control-attribution { background: rgba(0,0,0,0.4); color: #d0d4da; }
+.map-card .leaflet-bar a { background: #2d323b; color: #f5f7fa; border: 1px solid #3a4049; }
+.map-card .leaflet-bar a:hover { background: #3a4049; }
+  padding: 8px 10px;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.55);
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* allow internal scroll */
+  overflow: hidden;
+  color: #f5f7fa;
+  height: 100%; /* occupy grid row; internal list scrolls */
+}
+.leaderboard-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 6px 2px;
+  h4 { margin: 0; font-size: 0.95rem; font-weight: 600; color: #ffffff; }
+  small { font-size: 0.7rem; opacity: 0.75; color: #d0d4da; }
+}
+.leaderboard-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 2ch minmax(0,1fr) minmax(80px,0.6fr) minmax(70px,0.5fr);
+  align-items: center;
+  gap: 4px 8px;
+  padding: 5px 6px;
+  font-size: 0.75rem;
+  border-radius: 5px;
+  color: #f5f7fa;
+}
+.leaderboard-row:nth-child(odd) { background: rgba(255,255,255,0.04); }
+.leaderboard-row:nth-child(even) { background: rgba(255,255,255,0.02); }
+.leaderboard-row:hover { background: rgba(41,98,255,0.28); }
+.leaderboard-row .rank { font-weight: 600; text-align: right; opacity: 0.9; color: #e8ecf2; }
+.leaderboard-row .country { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffffff; }
+.leaderboard-row .confirmed { font-variant-numeric: tabular-nums; color: #5da0ff; font-weight: 600; }
+.leaderboard-row .deaths { font-variant-numeric: tabular-nums; color: #ff8484; font-weight: 600; }
+
+@media (max-width: 800px) {
+  .leaderboard-card { min-height: clamp(260px, 50dvh, 520px); }
+  .leaderboard-row { font-size: 0.8rem; }
+  .card.small .big { font-size: 1.25rem; }
+}
 
 /* Platform-specific tweaks */
 .platform-capacitor .dashboard-root { padding: 1.25rem; }
@@ -226,3 +351,24 @@
 
 /* Prevent page-level centering from Vite template */
 body { display: block; min-height: 100vh; }
+
+/* Dark map canvas & popup styling (appended) */
+.world-map-canvas, .map-card .leaflet-container { background: #1e2530; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: #1e2530;
+  color: #e2e6ec;
+  border: 1px solid #3a4450;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+}
+.leaflet-popup-content { margin: 6px 8px; }
+.leaflet-popup-close-button { color: #e2e6ec; }
+
+/* Recharts tooltip dark override (fallback if inline styles not applied) */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #1e2530 !important;
+  border: 1px solid #3a4450 !important;
+  color: #e2e6ec !important;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+  padding: 6px 8px !important;
+}

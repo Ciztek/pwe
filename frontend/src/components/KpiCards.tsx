@@ -1,4 +1,4 @@
-type Totals = { confirmed: number; recovered: number; deaths: number };
+type Totals = { confirmed: number; deaths: number };
 
 export default function KpiCards({ totals }: { totals: Totals }) {
 	return (
@@ -6,10 +6,6 @@ export default function KpiCards({ totals }: { totals: Totals }) {
 			<div className="card small confirmed">
 				<h3>Confirmed</h3>
 				<p className="big">{totals.confirmed.toLocaleString()}</p>
-			</div>
-			<div className="card small recovered">
-				<h3>Recovered</h3>
-				<p className="big">{totals.recovered.toLocaleString()}</p>
 			</div>
 			<div className="card small deaths">
 				<h3>Deaths</h3>

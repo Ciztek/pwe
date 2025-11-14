@@ -29,7 +29,13 @@ export default function WorldMap({
 	points,
 	height = "100%",
 }: {
-	points: Array<{ lat: number; lon: number; value: number; place?: string }>;
+	points: Array<{
+		lat: number;
+		lon: number;
+		value: number;
+		deaths?: number;
+		place?: string;
+	}>;
 	height?: number | string;
 }) {
 	const rootRef = useRef<HTMLDivElement | null>(null);
@@ -49,18 +55,44 @@ export default function WorldMap({
 			if (!mounted || !rootRef.current) return;
 			if (!mapRef.current) {
 				mapRef.current = L.map(rootRef.current, {
-					worldCopyJump: true,
+					worldCopyJump: false,
 					zoomControl: true,
+					minZoom: 2,
+					maxZoom: 10,
+					maxBounds: L.latLngBounds([
+						[-85, -180],
+						[85, 180],
+					]),
+					maxBoundsViscosity: 1.0,
 				}).setView([20, 0], 2);
-				// Cleaner light basemap (Carto Positron)
-				L.tileLayer(
-					"https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+				// Primary dark tile layer
+				const primaryTiles = L.tileLayer(
+					"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
 					{
 						attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
 						subdomains: "abcd",
 						maxZoom: 19,
+						noWrap: true,
+						continuousWorld: false,
 					},
-				).addTo(mapRef.current);
+				);
+				primaryTiles.addTo(mapRef.current);
+				// Fallback tile layer (standard OSM) loaded only if primary errors repeatedly
+				let fallbackAdded = false;
+				let errorCount = 0;
+				primaryTiles.on("tileerror", () => {
+					errorCount++;
+					if (errorCount >= 4 && !fallbackAdded) {
+						fallbackAdded = true;
+						L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+							attribution: "&copy; OpenStreetMap contributors",
+							maxZoom: 19,
+						}).addTo(mapRef.current);
+						console.warn(
+							"[worldmap] primary tiles failing; fallback OSM layer added",
+						);
+					}
+				});
 				// Add a scale control
 				L.control
 					.scale({ metric: true, imperial: false })
@@ -79,16 +111,33 @@ export default function WorldMap({
 			const maxRadius = 42;
 			const minRadius = 6;
 			for (const p of points) {
+				// Clamp coords to stay within map maxBounds and wrap longitude to [-180,180]
+				const lat = Math.max(-85, Math.min(85, p.lat));
+				let lon = p.lon;
+				if (lon < -180 || lon > 180) {
+					lon = ((((lon + 180) % 360) + 360) % 360) - 180;
+				}
 				const norm = Math.sqrt((p.value || 0) / max);
 				const radius = Math.max(minRadius, norm * maxRadius);
-				const c = L.circleMarker([p.lat, p.lon], {
+				const c = L.circleMarker([lat, lon], {
 					radius,
 					fillColor: "#ff6b6b",
 					color: "#a60000",
 					weight: 1,
 					fillOpacity: 0.7,
 				});
-				const label = `${p.place || ""}<br/>${p.value.toLocaleString()} cases`;
+				const short = (n: number) => {
+					const abs = Math.abs(n);
+					if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+					if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+					if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+					return `${Math.round(n)}`;
+				};
+				const label =
+					`${p.place || ""}<br/>Cases: ${p.value.toLocaleString()} (${short(p.value)})` +
+					(typeof p.deaths === "number"
+						? `<br/>Deaths: ${p.deaths.toLocaleString()} (${short(p.deaths)})`
+						: "");
 				c.bindPopup(label, { closeButton: false, offset: [0, -2] });
 				c.addTo(g);
 				c.on("mouseover", () => c.openPopup());
@@ -115,7 +164,7 @@ export default function WorldMap({
 				const bounds = L.latLngBounds(
 					points.map((p) => [p.lat, p.lon] as [number, number]),
 				);
-				mapRef.current.fitBounds(bounds, { padding: [20, 20] });
+				mapRef.current.fitBounds(bounds, { padding: [20, 20], maxZoom: 5 });
 				if (mapRef.current.getZoom() < 2) mapRef.current.setZoom(2);
 			} else if (points.length === 1) {
 				mapRef.current.setView([points[0].lat, points[0].lon], 4);
@@ -131,6 +180,7 @@ export default function WorldMap({
 	return (
 		<div
 			ref={rootRef}
+			className="world-map-canvas"
 			style={{ width: "100%", height, borderRadius: 8, overflow: "hidden" }}
 		/>
 	);

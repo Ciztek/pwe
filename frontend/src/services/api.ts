@@ -4,14 +4,12 @@ export type DataOutput = {
 	date_range?: string | null;
 	confirmed: number;
 	deaths: number;
-	recovered: number;
 };
 
 export type SeriesPoint = {
 	date: string;
 	confirmed: number;
 	deaths: number;
-	recovered: number;
 };
 
 // New backend places response: { continents: [ { id, name, countries: [ { id, name, states: [ { id, name, counties?: [ { id, name } ] } ] } ] } ] }
@@ -22,6 +20,11 @@ export type PlacesResponse = {
 		countries: Array<{
 			id: number;
 			name: string;
+			// Optional coordinates if backend provides them
+			lat?: number;
+			lon?: number;
+			latitude?: number;
+			longitude?: number;
 			states: Array<{
 				id: number;
 				name: string;
@@ -91,6 +94,12 @@ async function apiFetch<T>(path: string): Promise<T> {
 // Simple memo cache for daily totals to avoid refetching the same date/country
 const dailyCache = new Map<string, Promise<DataOutput | null>>();
 
+// Allow UI to clear caches and force re-detection of base URL
+export function clearApiCaches() {
+	dailyCache.clear();
+	CACHED_BASE = null;
+}
+
 export async function fetchTotalsForDate(
 	isoDate: string,
 	country?: string,
@@ -151,17 +160,16 @@ export async function fetchSeries(
 					date: iso,
 					confirmed: d.confirmed,
 					deaths: d.deaths,
-					recovered: d.recovered,
 				} as SeriesPoint;
 			}),
 		);
 		return points.filter(Boolean) as SeriesPoint[];
 	}
 
-	// For longer ranges, build an evenly bucketed series using the range endpoint.
-	// This avoids per-day calls while producing a proper multi-point line.
+	// For longer ranges, split into 5% chunks of the time span (~20 points)
+	// This avoids per-day calls while producing a consistent multi-point line.
 	// We compute disjoint buckets that exactly cover [start, end] with no overlap.
-	const targetPoints = Math.min(60, Math.max(20, Math.floor(totalDays / 7))); // ~weekly up to 60 points
+	const targetPoints = 20; // 5% buckets = 20 segments
 
 	const buckets: Array<{ a: string; b: string }> = [];
 	for (let i = 0; i < targetPoints; i++) {
@@ -185,7 +193,6 @@ export async function fetchSeries(
 				date: c.b,
 				confirmed: t.confirmed,
 				deaths: t.deaths,
-				recovered: t.recovered,
 			};
 			return p;
 		}),
@@ -218,4 +225,34 @@ export async function fetchCountries(): Promise<string[]> {
 		}
 	}
 	return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
+export async function fetchCountryCoords(): Promise<
+	Record<string, { lat: number; lon: number }>
+> {
+	const po = await fetchPlaces();
+	const coords: Record<string, { lat: number; lon: number }> = {};
+	for (const cont of po?.continents ?? []) {
+		for (const c of cont.countries ?? []) {
+			const name = c?.name;
+			if (!name) continue;
+			// Access optional coordinate fields with type guards
+			const lat =
+				typeof (c as { lat?: number }).lat === "number"
+					? (c as { lat: number }).lat
+					: typeof (c as { latitude?: number }).latitude === "number"
+						? (c as { latitude: number }).latitude
+						: undefined;
+			const lon =
+				typeof (c as { lon?: number }).lon === "number"
+					? (c as { lon: number }).lon
+					: typeof (c as { longitude?: number }).longitude === "number"
+						? (c as { longitude: number }).longitude
+						: undefined;
+			if (typeof lat === "number" && typeof lon === "number") {
+				coords[name] = { lat, lon };
+			}
+		}
+	}
+	return coords;
 }
