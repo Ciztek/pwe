@@ -1,4 +1,9 @@
-import { CasesLineChart, StackedAreaChart, DailyNewCasesChart } from "./Charts";
+import {
+	CasesLineChart,
+	StackedAreaChart,
+	DailyNewCasesChart,
+	TwoSeriesLineChart,
+} from "./Charts";
 
 export type LinePoint = { date: string; value: number };
 export type StackedPoint = {
@@ -35,7 +40,11 @@ export default function ChartsGrid({
 				</div>
 			)}
 			<div className="chart-card fill" style={{ gridArea: "stacked" }}>
-				<StackedAreaChart data={stacked} height="100%" scale={chartScale} />
+				{chartScale === "log" ? (
+					<TwoSeriesLineChart data={stacked} height="100%" scale={chartScale} />
+				) : (
+					<StackedAreaChart data={stacked} height="100%" scale={chartScale} />
+				)}
 			</div>
 		</>
 	);

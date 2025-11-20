@@ -272,6 +272,19 @@ export default function Dashboard() {
 											deaths: i.deaths,
 										}));
 									setLeaderboard(entries);
+									// incremental map point updates so map isn't empty
+									if (place === "World") {
+										const pts = acc
+											.filter((i) => !!i.coords)
+											.map((i) => ({
+												lat: i.coords!.lat,
+												lon: i.coords!.lon,
+												value: i.confirmed,
+												deaths: i.deaths,
+												place: i.place,
+											}));
+										setMapPoints(pts);
+									}
 								}
 							} catch {
 								// ignore

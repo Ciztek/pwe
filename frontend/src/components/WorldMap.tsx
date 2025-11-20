@@ -65,41 +65,114 @@ export default function WorldMap({
 					]),
 					maxBoundsViscosity: 1.0,
 				}).setView([20, 0], 2);
-				// Primary dark tile layer
-				const primaryTiles = L.tileLayer(
-					"https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-					{
-						attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-						subdomains: "abcd",
-						maxZoom: 19,
-						noWrap: true,
-						continuousWorld: false,
-					},
-				);
-				primaryTiles.addTo(mapRef.current);
-				// Fallback tile layer (standard OSM) loaded only if primary errors repeatedly
-				let fallbackAdded = false;
-				let errorCount = 0;
-				primaryTiles.on("tileerror", () => {
-					errorCount++;
-					if (errorCount >= 4 && !fallbackAdded) {
-						fallbackAdded = true;
-						L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-							attribution: "&copy; OpenStreetMap contributors",
-							maxZoom: 19,
-						}).addTo(mapRef.current);
-						console.warn(
-							"[worldmap] primary tiles failing; fallback OSM layer added",
-						);
+				// Ensure only dark tile layer present. Remove any pre-existing tile layers (e.g., light fallback from prior sessions)
+				mapRef.current.eachLayer((layer: any) => {
+					if (layer instanceof L.TileLayer) {
+						mapRef.current.removeLayer(layer);
 					}
 				});
+				// Candidate dark tile URLs (will try primary then fallbacks on error)
+				const darkCandidates: Array<{ url: string; options: any }> = [
+					// Standard OSM (will be dimmed by overlay if selected)
+					{
+						url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+						options: {
+							attribution: "&copy; OpenStreetMap contributors",
+							subdomains: ["a", "b", "c"],
+							maxZoom: 19,
+							noWrap: false,
+						},
+					},
+					// HOT OSM variant
+					{
+						url: "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+						options: {
+							attribution:
+								"&copy; OpenStreetMap contributors, Tiles style by HOT",
+							subdomains: ["a", "b", "c"],
+							maxZoom: 19,
+							noWrap: false,
+						},
+					},
+					{
+						url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+						options: {
+							attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+							subdomains: "abcd",
+							maxZoom: 19,
+							noWrap: true,
+							continuousWorld: false,
+						},
+					},
+					{
+						url: "https://tiles.stadiamaps.com/tiles/alidade_dark/{z}/{x}/{y}{r}.png",
+						options: {
+							attribution:
+								"&copy; OpenStreetMap contributors &copy; Stadia Maps &copy; OpenMapTiles",
+							maxZoom: 20,
+							noWrap: true,
+						},
+					},
+					{
+						url: "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+						options: {
+							attribution:
+								"&copy; OpenStreetMap contributors &copy; Stadia Maps &copy; OpenMapTiles",
+							maxZoom: 20,
+							noWrap: true,
+						},
+					},
+				];
+				let tileIndex = 0;
+				function addNextTile() {
+					if (tileIndex >= darkCandidates.length) {
+						// Final fallback: use standard OSM tiles with a CSS darkening filter
+						const fallback = L.tileLayer(
+							"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+							{
+								attribution: "&copy; OpenStreetMap contributors",
+								maxZoom: 19,
+								noWrap: true,
+							},
+						);
+						fallback.addTo(mapRef.current);
+						if (!document.getElementById("worldmap-dark-fallback-style")) {
+							const style = document.createElement("style");
+							style.id = "worldmap-dark-fallback-style";
+							style.textContent =
+								".world-map-canvas .leaflet-tile { filter: brightness(0.55) saturate(0.3) contrast(1.1); }";
+							document.head.appendChild(style);
+						}
+						console.warn(
+							"[worldmap] All dark providers failed. Using filtered OSM fallback.",
+						);
+						return;
+					}
+					const candidate = darkCandidates[tileIndex];
+					const layer = L.tileLayer(candidate.url, candidate.options);
+					layer.on("tileerror", () => {
+						console.warn(
+							`[worldmap] dark tiles failed for candidate ${tileIndex}. Trying next...`,
+						);
+						mapRef.current.removeLayer(layer);
+						tileIndex++;
+						addNextTile();
+					});
+					layer.on("load", () => {
+						console.info(
+							`[worldmap] dark tile candidate ${tileIndex} loaded successfully`,
+						);
+					});
+					layer.addTo(mapRef.current);
+				}
+				addNextTile();
 				// Add a scale control
 				L.control
 					.scale({ metric: true, imperial: false })
 					.addTo(mapRef.current);
 			}
 
-			// clear existing layer group
+			// clear existing point layer group (keep base tile layer)
 			if (layerGroupRef.current) {
 				mapRef.current.removeLayer(layerGroupRef.current);
 			}
@@ -159,18 +232,22 @@ export default function WorldMap({
 				}
 			}, 0);
 
-			// Fit map view to markers gracefully
-			if (points.length >= 2) {
-				const bounds = L.latLngBounds(
-					points.map((p) => [p.lat, p.lon] as [number, number]),
-				);
-				mapRef.current.fitBounds(bounds, { padding: [20, 20], maxZoom: 5 });
-				if (mapRef.current.getZoom() < 2) mapRef.current.setZoom(2);
-			} else if (points.length === 1) {
-				mapRef.current.setView([points[0].lat, points[0].lon], 4);
-			} else {
-				mapRef.current.setView([20, 0], 2);
+			// Fit map view only on initial render or when first points appear
+			const prevCount = (mapRef.current as any)._lastPointCount || 0;
+			if (prevCount === 0) {
+				if (points.length >= 2) {
+					const bounds = L.latLngBounds(
+						points.map((p) => [p.lat, p.lon] as [number, number]),
+					);
+					mapRef.current.fitBounds(bounds, { padding: [20, 20], maxZoom: 5 });
+					if (mapRef.current.getZoom() < 2) mapRef.current.setZoom(2);
+				} else if (points.length === 1) {
+					mapRef.current.setView([points[0].lat, points[0].lon], 4);
+				} else {
+					mapRef.current.setView([20, 0], 2);
+				}
 			}
+			(mapRef.current as any)._lastPointCount = points.length;
 		})();
 		return () => {
 			mounted = false;

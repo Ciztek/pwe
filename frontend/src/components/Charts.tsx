@@ -36,9 +36,21 @@ export function CasesLineChart({
 		return `${Math.round(n)}`;
 	};
 
+	// For log scale, replace non-positive values with null so the line can connect across gaps.
+	const displayData =
+		scale === "log"
+			? data.map((d) => ({
+					...d,
+					value: d.value > 0 ? d.value : (null as unknown as number),
+				}))
+			: data;
+
 	return (
 		<ResponsiveContainer width="100%" height={height}>
-			<LineChart data={data} margin={{ top: 6, right: 12, left: 4, bottom: 0 }}>
+			<LineChart
+				data={displayData}
+				margin={{ top: 6, right: 12, left: 4, bottom: 0 }}
+			>
 				<CartesianGrid strokeDasharray="3 3" />
 				<XAxis
 					dataKey="date"
@@ -77,7 +89,8 @@ export function CasesLineChart({
 					type="monotone"
 					dataKey="value"
 					stroke={color}
-					dot={data.length <= 2}
+					connectNulls
+					dot={displayData.length <= 2 ? true : false}
 					strokeWidth={2}
 				/>
 			</LineChart>
@@ -203,10 +216,28 @@ export function DailyNewCasesChart({
 		if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
 		return `${Math.round(n)}`;
 	};
+	// For log scale, replace zeros with nulls to avoid invalid log values
+	const dailyDisplay =
+		scale === "log"
+			? daily.map((d) => ({
+					date: d.date,
+					confirmed:
+						d.confirmed > 0 ? d.confirmed : (null as unknown as number),
+					deaths: d.deaths > 0 ? d.deaths : (null as unknown as number),
+				}))
+			: daily;
+	const avgDisplay =
+		scale === "log"
+			? avg7.map((d) => ({
+					date: d.date,
+					avg: d.avg > 0 ? d.avg : (null as unknown as number),
+				}))
+			: avg7;
+
 	return (
 		<ResponsiveContainer width="100%" height={height}>
 			<LineChart
-				data={daily}
+				data={dailyDisplay}
 				margin={{ top: 6, right: 12, left: 4, bottom: 0 }}
 			>
 				<CartesianGrid strokeDasharray="3 3" />
@@ -258,23 +289,120 @@ export function DailyNewCasesChart({
 					name="Confirmed"
 					stroke="#2962ff"
 					strokeWidth={2}
-					activeDot={{ r: 5 }}
+					connectNulls
+					dot={false}
 				/>
 				<Line
 					dataKey="deaths"
 					name="Deaths"
 					stroke="#ff6b6b"
 					strokeWidth={2}
-					activeDot={{ r: 5 }}
+					connectNulls
+					dot={false}
 				/>
 				<Line
-					data={avg7}
+					data={avgDisplay}
 					dataKey="avg"
 					name="avg7"
 					stroke="#ffd166"
 					dot={false}
 					strokeDasharray="4 3"
 					strokeWidth={2}
+				/>
+			</LineChart>
+		</ResponsiveContainer>
+	);
+}
+
+// Dual-series line chart for confirmed and deaths; used when log scale is enabled instead of stacked area.
+export function TwoSeriesLineChart({
+	data,
+	height = "100%",
+	scale = "linear",
+}: {
+	data: Array<{ date: string; confirmed: number; deaths: number }>;
+	height?: number | string;
+	scale?: "linear" | "log";
+}) {
+	const short = (n: number) => {
+		const abs = Math.abs(n);
+		if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+		if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+		if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+		return `${Math.round(n)}`;
+	};
+	const display =
+		scale === "log"
+			? data.map((d) => ({
+					date: d.date,
+					confirmed:
+						d.confirmed > 0 ? d.confirmed : (null as unknown as number),
+					deaths: d.deaths > 0 ? d.deaths : (null as unknown as number),
+				}))
+			: data;
+	return (
+		<ResponsiveContainer width="100%" height={height}>
+			<LineChart
+				data={display}
+				margin={{ top: 6, right: 12, left: 4, bottom: 0 }}
+			>
+				<CartesianGrid strokeDasharray="3 3" />
+				<XAxis
+					dataKey="date"
+					tickFormatter={(d: string | number) =>
+						format(parseISO(String(d)), "MM/dd")
+					}
+					minTickGap={24}
+					tickCount={Math.min(6, Math.max(2, display.length))}
+					tick={{ fill: "#e2e6ec", fontSize: 11 }}
+				/>
+				<YAxis
+					width={56}
+					domain={scale === "log" ? [1, "dataMax"] : [0, "dataMax"]}
+					allowDecimals={false}
+					tickFormatter={short}
+					tick={{ fill: "#e2e6ec", fontSize: 11 }}
+					scale={scale}
+				/>
+				<Tooltip
+					labelFormatter={(d: string) => format(parseISO(String(d)), "PPP")}
+					formatter={(v: number, name: string) =>
+						[
+							short(Number(v)),
+							name.charAt(0).toUpperCase() + name.slice(1),
+						] as [string, string]
+					}
+					contentStyle={{
+						background: "#1e2530",
+						border: "1px solid #3a4450",
+						borderRadius: 6,
+						color: "#e2e6ec",
+						boxShadow: "0 4px 12px rgba(0,0,0,0.6)",
+						padding: "6px 8px",
+					}}
+					itemStyle={{ color: "#e2e6ec", padding: 0 }}
+					cursor={{ stroke: "#3a4450", strokeWidth: 1 }}
+				/>
+				<Legend
+					verticalAlign="top"
+					align="right"
+					wrapperStyle={{ fontSize: "0.7rem", paddingBottom: 4 }}
+				/>
+				<Line
+					dataKey="confirmed"
+					name="Confirmed"
+					stroke="#2962ff"
+					strokeWidth={2}
+					connectNulls
+					dot={false}
+				/>
+				<Line
+					dataKey="deaths"
+					name="Deaths"
+					stroke="#ff6b6b"
+					strokeWidth={2}
+					connectNulls
+					dot={false}
 				/>
 			</LineChart>
 		</ResponsiveContainer>

@@ -64,6 +64,7 @@
   border-bottom: none; // blend with dark canvas
   padding-bottom: 6px;
   h2 { margin: 0; font-size: 1.1rem; }
+}
 .dashboard-title { cursor: pointer; user-select: none; transition: color 0.18s ease, transform 0.18s ease; }
 .dashboard-title:hover { color: #5da0ff; }
 .dashboard-title:active { transform: scale(0.97); }
@@ -82,7 +83,6 @@
   height: 100%;
   background: linear-gradient(90deg, #2962ff, #5da0ff);
   transition: width 0.25s ease;
-}
 }
 .controls { display: flex; align-items: center; gap: 8px; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
@@ -221,7 +221,7 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.55);
   display: flex;
   overflow: hidden;
-  min-height: 0;
+  min-height: 260px; /* ensure space reserved even before points */
 }
 
 /* KPIs area tweaks */
@@ -268,8 +268,8 @@
 }
 
 /* Ensure chart/map cards fill grid cell height */
-.chart-card.fill,
-.map-card.fill { min-height: 0; }
+.chart-card.fill { min-height: 0; }
+.map-card.fill { min-height: clamp(260px, 42vh, 440px); }
 
 /* Per-card color overrides */
 .card.confirmed { border-left: 4px solid rgba(0, 123, 255, 0.9); --text-color: #0b1d3a; }
