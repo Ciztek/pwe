@@ -77,7 +77,6 @@ async def init_schema(conn: Connection):
         country TEXT NOT NULL,
         confirmed INTEGER NOT NULL,
         deaths INTEGER NOT NULL,
-        recovered INTEGER,
         active INTEGER,
         incident_rate REAL,
         case_fatality_ratio REAL,
@@ -129,11 +128,6 @@ async def fill_db(conn: Connection):
                     int(r.get("Confirmed") or 0),
                     int(r.get("Deaths") or 0),
                     (
-                        int(r.get("Recovered") or 0)
-                        if r.get("Recovered") not in (None, "")
-                        else None
-                    ),
-                    (
                         int(r.get("Active") or 0)
                         if r.get("Active") not in (None, "")
                         else None
@@ -158,9 +152,9 @@ async def fill_db(conn: Connection):
             """
             INSERT INTO data_point (
                 date, us_county_id, us_county_name, province, country,
-                confirmed, deaths, recovered, active,
+                confirmed, deaths, active,
                 incident_rate, case_fatality_ratio, lat, lon
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             rows,
         )

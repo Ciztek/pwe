@@ -10,7 +10,6 @@ class DataOutput(BaseModel):
     date_range: str | None = None
     confirmed: int
     deaths: int
-    recovered: int
 
 
 class State(TypedDict):

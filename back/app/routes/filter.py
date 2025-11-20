@@ -146,8 +146,7 @@ async def get_data(
         q = f"""
         SELECT
             COALESCE(SUM(confirmed), 0) AS confirmed,
-            COALESCE(SUM(deaths), 0) AS deaths,
-            COALESCE(SUM(recovered), 0) AS recovered
+            COALESCE(SUM(deaths), 0) AS deaths
         FROM data_point
         {where_clause}
         {'AND' if filters else 'WHERE'} date = :date
@@ -158,7 +157,6 @@ async def get_data(
         return {
             "confirmed": row["confirmed"],
             "deaths": row["deaths"],
-            "recovered": row["recovered"],
         }
 
     # exact-date mode
@@ -169,7 +167,6 @@ async def get_data(
             date=date_,
             confirmed=totals["confirmed"],
             deaths=totals["deaths"],
-            recovered=totals["recovered"],
         )
 
     # date-range mode → difference between end and (start - 1)
@@ -186,7 +183,7 @@ async def get_data(
         if prev_date:
             totals_prev = await get_total(prev_date)
         else:
-            totals_prev = {"confirmed": 0, "deaths": 0, "recovered": 0}
+            totals_prev = {"confirmed": 0, "deaths": 0}
 
         deltas = {
             k: max(totals_end[k] - totals_prev[k], 0) for k in totals_end
@@ -197,7 +194,6 @@ async def get_data(
             date_range=f"{start_date} → {end_date}",
             confirmed=deltas["confirmed"],
             deaths=deltas["deaths"],
-            recovered=deltas["recovered"],
         )
 
     # default: latest available date
@@ -210,5 +206,4 @@ async def get_data(
         date=latest_date,
         confirmed=totals["confirmed"],
         deaths=totals["deaths"],
-        recovered=totals["recovered"],
     )
