@@ -363,6 +363,20 @@ body { display: block; min-height: 100vh; }
 .leaflet-popup-content { margin: 6px 8px; }
 .leaflet-popup-close-button { color: #e2e6ec; }
 
+/* Stable dark tone filters for basemap (applied when .dark-tone class added by map init) */
+.world-map-canvas.dark-tone { position: relative; }
+.world-map-canvas.dark-tone .leaflet-tile-pane { filter: brightness(0.55) contrast(1.06) saturate(0.6); }
+@media (min-resolution: 2dppx) {
+  .world-map-canvas.dark-tone .leaflet-tile-pane { filter: brightness(0.58) contrast(1.05) saturate(0.6); }
+}
+.world-map-canvas.dark-tone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(18,22,28,0.70), rgba(18,22,28,0.55));
+  pointer-events: none;
+}
+
 /* Recharts tooltip dark override (fallback if inline styles not applied) */
 .recharts-tooltip-wrapper .recharts-default-tooltip {
   background: #1e2530 !important;

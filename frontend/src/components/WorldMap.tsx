@@ -71,99 +71,148 @@ export default function WorldMap({
 						mapRef.current.removeLayer(layer);
 					}
 				});
-				// Candidate dark tile URLs (will try primary then fallbacks on error)
+				// Candidate dark tile URLs with English/international labels prioritized.
+				// Note: Wikimedia 'osm-intl' emphasizes international (English) names when available.
+				// If a provider fails (404 / network), we cascade to next.
 				const darkCandidates: Array<{ url: string; options: any }> = [
-					// Standard OSM (will be dimmed by overlay if selected)
 					{
-						url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+						url: "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",
 						options: {
-							attribution: "&copy; OpenStreetMap contributors",
-							subdomains: ["a", "b", "c"],
+							attribution: "&copy; OpenStreetMap contributors | Wikimedia maps",
 							maxZoom: 19,
-							noWrap: false,
-						},
-					},
-					// HOT OSM variant
-					{
-						url: "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
-						options: {
-							attribution:
-								"&copy; OpenStreetMap contributors, Tiles style by HOT",
-							subdomains: ["a", "b", "c"],
-							maxZoom: 19,
-							noWrap: false,
+							noWrap: true,
+							detectRetina: false,
 						},
 					},
 					{
-						url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+						url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
 						options: {
 							attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
 							subdomains: "abcd",
 							maxZoom: 19,
 							noWrap: true,
 							continuousWorld: false,
+							detectRetina: false,
 						},
 					},
 					{
-						url: "https://tiles.stadiamaps.com/tiles/alidade_dark/{z}/{x}/{y}{r}.png",
+						url: "https://tiles.stadiamaps.com/tiles/alidade_dark/{z}/{x}/{y}.png",
 						options: {
 							attribution:
 								"&copy; OpenStreetMap contributors &copy; Stadia Maps &copy; OpenMapTiles",
 							maxZoom: 20,
 							noWrap: true,
+							detectRetina: false,
 						},
 					},
 					{
-						url: "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png",
+						url: "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}.png",
 						options: {
 							attribution:
 								"&copy; OpenStreetMap contributors &copy; Stadia Maps &copy; OpenMapTiles",
 							maxZoom: 20,
 							noWrap: true,
+							detectRetina: false,
 						},
 					},
 				];
 				let tileIndex = 0;
+				let loadedTiles = 0;
+				let fallbackTimeout: number | null = null;
+				let errorTiles = 0;
+				let earlyErrorCheck: number | null = null;
+				function applyCssFallback() {
+					const fallback = L.tileLayer(
+						"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+						{
+							attribution: "&copy; OpenStreetMap contributors",
+							maxZoom: 19,
+							noWrap: true,
+						},
+					);
+					fallback.addTo(mapRef.current);
+					if (!document.getElementById("worldmap-dark-fallback-style")) {
+						const style = document.createElement("style");
+						style.id = "worldmap-dark-fallback-style";
+						style.textContent = `
+.world-map-canvas { position: relative; }
+.world-map-canvas .leaflet-tile { filter: grayscale(0.25) brightness(0.72) contrast(1.08) saturate(0.6); }
+.world-map-canvas::after { content:''; position:absolute; inset:0; background:rgba(13,17,23,0.55); pointer-events:none; }
+`;
+						document.head.appendChild(style);
+					}
+					console.warn(
+						"[worldmap] Falling back to filtered OSM with overlay; dark tiles unavailable.",
+					);
+				}
 				function addNextTile() {
 					if (tileIndex >= darkCandidates.length) {
-						// Final fallback: use standard OSM tiles with a CSS darkening filter
-						const fallback = L.tileLayer(
-							"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-							{
-								attribution: "&copy; OpenStreetMap contributors",
-								maxZoom: 19,
-								noWrap: true,
-							},
-						);
-						fallback.addTo(mapRef.current);
-						if (!document.getElementById("worldmap-dark-fallback-style")) {
-							const style = document.createElement("style");
-							style.id = "worldmap-dark-fallback-style";
-							style.textContent =
-								".world-map-canvas .leaflet-tile { filter: brightness(0.55) saturate(0.3) contrast(1.1); }";
-							document.head.appendChild(style);
-						}
-						console.warn(
-							"[worldmap] All dark providers failed. Using filtered OSM fallback.",
-						);
+						// Final fallback after exhausting candidates
+						applyCssFallback();
 						return;
 					}
 					const candidate = darkCandidates[tileIndex];
 					const layer = L.tileLayer(candidate.url, candidate.options);
+					errorTiles = 0;
+					loadedTiles = 0;
 					layer.on("tileerror", () => {
-						console.warn(
-							`[worldmap] dark tiles failed for candidate ${tileIndex}. Trying next...`,
-						);
-						mapRef.current.removeLayer(layer);
-						tileIndex++;
-						addNextTile();
+						errorTiles++;
+						// If too many errors accumulate quickly and nothing loaded yet, bail early.
+						if (errorTiles >= 6 && loadedTiles === 0) {
+							console.warn(
+								`[worldmap] excessive tile 404s on candidate ${tileIndex}; switching early.`,
+							);
+							mapRef.current.removeLayer(layer);
+							if (earlyErrorCheck) window.clearTimeout(earlyErrorCheck);
+							tileIndex++;
+							addNextTile();
+						}
 					});
 					layer.on("load", () => {
 						console.info(
 							`[worldmap] dark tile candidate ${tileIndex} loaded successfully`,
 						);
+						// Remove any CSS fallback darkening filter if present
+						const fallbackStyle = document.getElementById(
+							"worldmap-dark-fallback-style",
+						);
+						if (fallbackStyle) fallbackStyle.remove();
+						// Ensure stable tone class present
+						if (
+							rootRef.current &&
+							!rootRef.current.classList.contains("dark-tone")
+						) {
+							rootRef.current.classList.add("dark-tone");
+						}
+					});
+					layer.on("tileload", () => {
+						loadedTiles++;
 					});
 					layer.addTo(mapRef.current);
+					// Early error-rate check (1s). If no tiles loaded and errors piling up, switch.
+					if (earlyErrorCheck) window.clearTimeout(earlyErrorCheck);
+					earlyErrorCheck = window.setTimeout(() => {
+						if (loadedTiles === 0 && errorTiles >= 4) {
+							console.warn(
+								`[worldmap] early error check triggered on candidate ${tileIndex}; moving to next.`,
+							);
+							mapRef.current.removeLayer(layer);
+							tileIndex++;
+							addNextTile();
+						}
+					}, 1000);
+					// Start / reset timeout to verify tile visibility
+					if (fallbackTimeout) window.clearTimeout(fallbackTimeout);
+					fallbackTimeout = window.setTimeout(() => {
+						if (loadedTiles === 0) {
+							console.warn(
+								"[worldmap] No tiles loaded in time; applying fallback overlay.",
+							);
+							// remove this failed candidate before fallback
+							mapRef.current.removeLayer(layer);
+							applyCssFallback();
+						}
+					}, 2500);
 				}
 				addNextTile();
 				// Add a scale control
