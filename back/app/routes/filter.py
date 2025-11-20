@@ -145,8 +145,8 @@ async def get_data(
     async def get_total(date_value: date) -> dict[str, int]:
         q = f"""
         SELECT
-            COALESCE(SUM(confirmed), 0) AS confirmed,
-            COALESCE(SUM(deaths), 0) AS deaths
+            COALESCE(SUM(total_confirmed), 0) AS total_confirmed,
+            COALESCE(SUM(total_deaths), 0) AS total_deaths
         FROM data_point
         {where_clause}
         {'AND' if filters else 'WHERE'} date = :date
@@ -155,8 +155,8 @@ async def get_data(
         row = await result.fetchone()
         assert row is not None, "Due to COALESCE, row should never be None"
         return {
-            "confirmed": row["confirmed"],
-            "deaths": row["deaths"],
+            "total_confirmed": row["total_confirmed"],
+            "total_deaths": row["total_deaths"],
         }
 
     # exact-date mode
@@ -165,8 +165,8 @@ async def get_data(
         return DataOutput(
             place=county or state or country or continent or "Global",
             date=date_,
-            confirmed=totals["confirmed"],
-            deaths=totals["deaths"],
+            confirmed=totals["total_confirmed"],
+            deaths=totals["total_deaths"],
         )
 
     # date-range mode → difference between end and (start - 1)
@@ -183,7 +183,7 @@ async def get_data(
         if prev_date:
             totals_prev = await get_total(prev_date)
         else:
-            totals_prev = {"confirmed": 0, "deaths": 0}
+            totals_prev = {"total_confirmed": 0, "total_deaths": 0}
 
         deltas = {
             k: max(totals_end[k] - totals_prev[k], 0) for k in totals_end
@@ -192,8 +192,8 @@ async def get_data(
         return DataOutput(
             place=county or state or country or continent or "Global",
             date_range=f"{start_date} → {end_date}",
-            confirmed=deltas["confirmed"],
-            deaths=deltas["deaths"],
+            confirmed=deltas["total_confirmed"],
+            deaths=deltas["total_deaths"],
         )
 
     # default: latest available date
@@ -204,6 +204,6 @@ async def get_data(
     return DataOutput(
         place=county or state or country or continent or "Global",
         date=latest_date,
-        confirmed=totals["confirmed"],
-        deaths=totals["deaths"],
+        confirmed=totals["total_confirmed"],
+        deaths=totals["total_deaths"],
     )

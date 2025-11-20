@@ -75,8 +75,10 @@ async def init_schema(conn: Connection):
         us_county_name TEXT,
         province TEXT,
         country TEXT NOT NULL,
-        confirmed INTEGER NOT NULL,
-        deaths INTEGER NOT NULL,
+        total_confirmed INTEGER NOT NULL,
+        daily_confirmed INTEGER NOT NULL,
+        total_deaths INTEGER NOT NULL,
+        daily_deaths INTEGER NOT NULL,
         active INTEGER,
         incident_rate REAL,
         case_fatality_ratio REAL,
@@ -102,7 +104,7 @@ async def fill_db(conn: Connection):
     current = start_date
     batch_size = 0
     total_inserted = 0
-
+    prev_rows: dict[str, tuple] = {}
     while current <= end_date:
         if str(current) in existing_dates:
             current += timedelta(days=1)
@@ -115,18 +117,42 @@ async def fill_db(conn: Connection):
         if not csv_path.exists():
             current += timedelta(days=1)
             continue
-
         with open(csv_path, newline="", encoding="utf-8") as f:
             reader = DictReader(f)
-            rows = [
-                (
+            rows = []
+            for idx, r in enumerate(reader):
+                key = r.get("Combined_Key", None)
+                assert (
+                    key is not None
+                ), f"Each row must have a Combined_Key field, date of error {current}, row {idx}"
+                confirmed = int(r.get("Confirmed") or 0)
+                deaths = int(r.get("Deaths") or 0)
+
+                if not prev_rows:
+                    daily_confirmed = confirmed
+                    daily_deaths = deaths
+                else:
+                    prev_row = prev_rows.get(key, None)
+                    if not prev_row:
+                        daily_confirmed = confirmed
+                        daily_deaths = deaths
+                    else:
+                        daily_confirmed = confirmed - int(prev_row[5])
+                        daily_deaths = deaths - int(prev_row[7])
+
+                        daily_confirmed = max(0, daily_confirmed)
+                        daily_deaths = max(0, daily_deaths)
+
+                row = (
                     str(current),
                     r.get("FIPS") or None,
                     r.get("Admin2") or None,
                     r.get("Province_State") or r.get("Province/State") or None,
                     r.get("Country_Region") or r.get("Country/Region"),
-                    int(r.get("Confirmed") or 0),
-                    int(r.get("Deaths") or 0),
+                    confirmed,
+                    daily_confirmed,
+                    deaths,
+                    daily_deaths,
                     (
                         int(r.get("Active") or 0)
                         if r.get("Active") not in (None, "")
@@ -145,16 +171,16 @@ async def fill_db(conn: Connection):
                     float(r.get("Lat") or 0),
                     float(r.get("Long_") or 0),
                 )
-                for r in reader
-            ]
+                rows.append(row)
+                prev_rows[key] = row
 
         await conn.executemany(
             """
             INSERT INTO data_point (
                 date, us_county_id, us_county_name, province, country,
-                confirmed, deaths, active,
+                total_confirmed, daily_confirmed, total_deaths, daily_deaths, active,
                 incident_rate, case_fatality_ratio, lat, lon
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             rows,
         )
@@ -168,9 +194,11 @@ async def fill_db(conn: Connection):
             await conn.commit()
 
         current += timedelta(days=1)
-
     print(
-        f"[fill_db] Done processing data for batch: {current - timedelta(days=batch_size)} to {current}, duration {batch_size} days."
+        f"[fill_db] Done processing data for remaining batch: {current - timedelta(days=batch_size % 30)} to {current}, duration {batch_size % 30} days."
+    )
+    print(
+        f"[fill_db] Done processing data for total batch: {current - timedelta(days=batch_size)} to {current}, total duration {batch_size} days."
     )
     await conn.commit()
     print(f"[fill_db] Inserted {total_inserted} data rows.")
