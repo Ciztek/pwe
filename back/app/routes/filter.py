@@ -88,127 +88,188 @@ async def get_dates(db=Depends(get_db)):
     return {"dates": dates}
 
 
-@router.get("/data", response_model=DataOutput)
+@router.get("/data")
 async def get_data(
     db: Connection = Depends(get_db),
-    start_date: Optional[date] = Query(
-        None, description="Start of date range"
-    ),
-    end_date: Optional[date] = Query(None, description="End of date range"),
-    date_: Optional[date] = Query(
-        None, alias="date", description="Exact date to filter"
-    ),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    date_: Optional[date] = Query(None, alias="date"),
     continent: Optional[str] = None,
     country: Optional[str] = None,
     state: Optional[str] = None,
     county: Optional[str] = None,
 ):
     """
-    Query cumulative or delta data depending on the filters.
+    Return SUM(daily_confirmed) and SUM(daily_deaths) over the date range with nested breakdown by place.
 
-    - If `date` is given → return totals up to that date.
-    - If `start_date` and `end_date` are given → return *difference* between those dates.
-    - Location filters (continent, country, state, county) are combinable (and are case-insensitive).
-    - Location and date filters are combinable.
-    If no date filters are given, return latest available totals.
+    - If date= is provided → treat it as start_date=end_date
+    - If no date filters → use the full range available
+    - If place filters are provided → drill down to that place in the result
+    - Otherwise return global summary with continent breakdown
     """
 
-    filters = []
-    params = {}
-
-    if county:
-        filters.append("LOWER(us_county_name) = LOWER(:county)")
-        params["county"] = county
-    if state:
-        filters.append("LOWER(province) = LOWER(:state)")
-        params["state"] = state
-    if country:
-        filters.append("LOWER(country) = LOWER(:country)")
-        params["country"] = country
-    if continent:
-        # continent via subquery mapping (avoid duplicate joins)
-        filters.append(
-            """
-            LOWER(country) IN (
-                SELECT LOWER(co.name)
-                FROM country co
-                JOIN continent ct ON co.continent_id = ct.id
-                WHERE LOWER(ct.name) = LOWER(:continent)
-            )
-        """
-        )
-        params["continent"] = continent
-
-    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
-
-    # helper to get total for specific date
-    async def get_total(date_value: date) -> dict[str, int]:
-        q = f"""
-        SELECT
-            COALESCE(SUM(confirmed), 0) AS confirmed,
-            COALESCE(SUM(deaths), 0) AS deaths,
-            COALESCE(SUM(recovered), 0) AS recovered
-        FROM data_point
-        {where_clause}
-        {'AND' if filters else 'WHERE'} date = :date
-        """
-        result = await db.execute(q, {**params, "date": str(date_value)})
-        row = await result.fetchone()
-        assert row is not None, "Due to COALESCE, row should never be None"
-        return {
-            "confirmed": row["confirmed"],
-            "deaths": row["deaths"],
-            "recovered": row["recovered"],
-        }
-
-    # exact-date mode
     if date_:
-        totals = await get_total(date_)
-        return DataOutput(
-            place=county or state or country or continent or "Global",
-            date=date_,
-            confirmed=totals["confirmed"],
-            deaths=totals["deaths"],
-            recovered=totals["recovered"],
-        )
+        start_date = end_date = date_
 
-    # date-range mode → difference between end and (start - 1)
-    if start_date and end_date:
-        totals_end = await get_total(end_date)
+    if not start_date or not end_date:
+        row = await (
+            await db.execute("SELECT MIN(date), MAX(date) FROM data_point")
+        ).fetchone()
+        assert row is not None
+        start_date = start_date or date.fromisoformat(row[0])
+        end_date = end_date or date.fromisoformat(row[1])
 
-        prev_date_query = await db.execute(
-            "SELECT MAX(date) AS prev FROM data_point WHERE date < :start",
-            {"start": str(start_date)},
-        )
-        prev_row = await prev_date_query.fetchone()
-        prev_date = prev_row["prev"]
+    params = {
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+        "continent": continent,
+        "country": country,
+        "state": state,
+        "county": county,
+    }
 
-        if prev_date:
-            totals_prev = await get_total(prev_date)
-        else:
-            totals_prev = {"confirmed": 0, "deaths": 0, "recovered": 0}
+    where_clauses = ["dp.date BETWEEN :start AND :end"]
 
-        deltas = {
-            k: max(totals_end[k] - totals_prev[k], 0) for k in totals_end
+    if continent:
+        where_clauses.append("LOWER(continent.name) = LOWER(:continent)")
+    if country:
+        where_clauses.append("LOWER(country.name) = LOWER(:country)")
+    if state:
+        where_clauses.append("LOWER(state.name) = LOWER(:state)")
+    if county:
+        where_clauses.append("LOWER(county.name) = LOWER(:county)")
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = f"""
+    SELECT
+        continent.name AS continent_name,
+        country.name AS country_name,
+        state.name AS state_name,
+        county.name AS county_name,
+        SUM(dp.daily_confirmed) AS confirmed,
+        SUM(dp.daily_deaths) AS deaths
+    FROM data_point dp
+    LEFT JOIN country   ON country.name = dp.country
+    LEFT JOIN continent ON continent.id = country.continent_id
+    LEFT JOIN state     ON state.name = dp.province AND state.country_id = country.id
+    LEFT JOIN county    ON county.name = dp.us_county_name AND county.state_id = state.id
+    WHERE {where_sql}
+    GROUP BY continent_name, country_name, state_name, county_name
+    """
+
+    rows = await (await db.execute(query, params)).fetchall()
+
+    def make_node(place):
+        return {
+            "place": place,
+            "confirmed": 0,
+            "deaths": 0,
+            "date_range": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+            },
         }
 
-        return DataOutput(
-            place=county or state or country or continent or "Global",
-            date_range=f"{start_date} → {end_date}",
-            confirmed=deltas["confirmed"],
-            deaths=deltas["deaths"],
-            recovered=deltas["recovered"],
+    world_confirmed = 0
+    world_deaths = 0
+    continents = {}
+
+    for (
+        continent_name,
+        country_name,
+        state_name,
+        county_name,
+        confirmed,
+        deaths,
+    ) in rows:
+
+        world_confirmed += confirmed or 0
+        world_deaths += deaths or 0
+
+        if continent_name not in continents:
+            continents[continent_name] = make_node(continent_name)
+
+        cont = continents[continent_name]
+        cont["confirmed"] += confirmed or 0
+        cont["deaths"] += deaths or 0
+
+        if country_name is None:
+            continue
+
+        cont.setdefault("detail", [])
+        country_node = next(
+            (c for c in cont["detail"] if c["place"] == country_name), None
         )
 
-    # default: latest available date
-    latest_q = await db.execute("SELECT MAX(date) AS latest FROM data_point")
-    latest_date = (await latest_q.fetchone())["latest"]
+        if not country_node:
+            country_node = make_node(country_name)
+            cont["detail"].append(country_node)
 
-    totals = await get_total(latest_date)
-    return DataOutput(
-        place=county or state or country or continent or "Global",
-        date=latest_date,
-        confirmed=totals["confirmed"],
-        deaths=totals["deaths"],
-        recovered=totals["recovered"],
-    )
+        country_node["confirmed"] += confirmed or 0
+        country_node["deaths"] += deaths or 0
+
+        if state_name is None:
+            continue
+
+        country_node.setdefault("detail", [])
+        state_node = next(
+            (s for s in country_node["detail"] if s["place"] == state_name),
+            None,
+        )
+
+        if not state_node:
+            state_node = make_node(state_name)
+            country_node["detail"].append(state_node)
+
+        state_node["confirmed"] += confirmed or 0
+        state_node["deaths"] += deaths or 0
+
+        if country_name == "US" and county_name is not None:
+            state_node.setdefault("detail", [])
+            county_node = next(
+                (x for x in state_node["detail"] if x["place"] == county_name),
+                None,
+            )
+
+            if not county_node:
+                county_node = make_node(county_name)
+                state_node["detail"].append(county_node)
+
+            county_node["confirmed"] += confirmed or 0
+            county_node["deaths"] += deaths or 0
+
+    result = make_node("Global")
+    result["confirmed"] = world_confirmed
+    result["deaths"] = world_deaths
+    result["detail"] = list(continents.values())
+
+    # Fine grain the result to match filter inputs
+    def drill_down(root):
+        # Priority: county > state > country > continent
+        if county:
+            # find the state first
+            for cont in root.get("detail", []):
+                for ctry in cont.get("detail", []):
+                    for st in ctry.get("detail", []):
+                        for cy in st.get("detail", []):
+                            if cy["place"].lower() == county.lower():
+                                return cy
+        if state:
+            for cont in root.get("detail", []):
+                for ctry in cont.get("detail", []):
+                    for st in ctry.get("detail", []):
+                        if st["place"].lower() == state.lower():
+                            return st
+        if country:
+            for cont in root.get("detail", []):
+                for ctry in cont.get("detail", []):
+                    if ctry["place"].lower() == country.lower():
+                        return ctry
+        if continent:
+            for cont in root.get("detail", []):
+                if cont["place"].lower() == continent.lower():
+                    return cont
+        return root
+
+    return drill_down(result)
