@@ -3,7 +3,13 @@ import WorldMap from "./WorldMap";
 export default function MapPanel({
 	points,
 }: {
-	points: Array<{ lat: number; lon: number; value: number; place?: string }>;
+	points: Array<{
+		lat: number;
+		lon: number;
+		value: number;
+		deaths?: number;
+		place?: string;
+	}>;
 }) {
 	return (
 		<div className="map-card fill" style={{ gridArea: "map" }}>

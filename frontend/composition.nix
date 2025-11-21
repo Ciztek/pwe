@@ -3,13 +3,10 @@
   includeNDK ? false,
   includeSystemImages ? false,
   includeEmulator ? false,
-
-  buildToolsVersions ? [ "34.0.0" ],
-  platformVersions ? [ "34" "35" ],
-
-  systemImageTypes ? [ "google_apis" ],
-  abiVersions ? [ "arm64-v8a" ],
-
+  buildToolsVersions ? ["34.0.0"],
+  platformVersions ? ["34" "35"],
+  systemImageTypes ? ["google_apis"],
+  abiVersions ? ["arm64-v8a"],
   extraLicenses ? [
     "android-sdk-preview-license"
     "android-googletv-license"
@@ -18,7 +15,7 @@
     "intel-android-extra-license"
     "intel-android-sysimage-license"
     "mips-android-sysimage-license"
-  ]
+  ],
 }:
 androidenv.composeAndroidPackages {
   inherit
@@ -29,5 +26,6 @@ androidenv.composeAndroidPackages {
     platformVersions
     systemImageTypes
     abiVersions
-    extraLicenses;
+    extraLicenses
+    ;
 }
