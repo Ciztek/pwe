@@ -1,0 +1,20 @@
+# Clippy configuration for PWE Karaoke
+# Balanced linting for learner-friendly Rust development
+
+# Cognitive complexity threshold - slightly relaxed for learning
+cognitive-complexity-threshold = 30
+
+# Type complexity threshold - slightly relaxed
+type-complexity-threshold = 300
+
+# Allow slightly longer functions while learning
+too-many-arguments-threshold = 8
+too-many-lines-threshold = 150
+
+# Vec box sizing threshold
+vec-box-size-threshold = 4096
+
+# Documentation
+# Don't require docs for everything while learning
+# But encourage it for public APIs
+missing-docs-in-crate-items = false

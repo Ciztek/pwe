@@ -1,0 +1,33 @@
+# Rustfmt configuration for PWE Karaoke
+# Balanced settings for learning Rust while maintaining good practices
+# Only using stable features (no nightly-only options)
+
+# Line width - comfortable for modern displays
+max_width = 100
+edition = "2021"
+
+# Indentation
+tab_spaces = 4
+hard_tabs = false
+
+# Imports
+reorder_imports = true
+
+# Functions
+fn_params_layout = "Tall"
+
+# Chains
+chain_width = 60
+
+# Formatting
+newline_style = "Unix"
+
+# Match formatting
+match_block_trailing_comma = true
+
+# Use field init shorthand
+use_field_init_shorthand = true
+
+# Misc
+remove_nested_parens = true
+use_try_shorthand = true
