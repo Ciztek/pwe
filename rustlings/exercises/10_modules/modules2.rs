@@ -2,9 +2,9 @@
 // the `use` and `as` keywords.
 
 mod delicious_snacks {
-    // TODO: Add the following two `use` statements after fixing them.
-    // use self::fruits::PEAR as ???;
-    // use self::veggies::CUCUMBER as ???;
+    // Expose renamed constants so callers can use `delicious_snacks::fruit` and `delicious_snacks::veggie`.
+    pub use self::fruits::PEAR as fruit;
+    pub use self::veggies::CUCUMBER as veggie;
 
     mod fruits {
         pub const PEAR: &str = "Pear";
