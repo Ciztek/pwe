@@ -34,7 +34,6 @@ separated_audio/
 output/
 
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo

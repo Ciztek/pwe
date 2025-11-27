@@ -47,18 +47,18 @@ strip = true
 # Clippy lints configuration
 [lints.clippy]
 # Deny these (important safety/correctness issues)
-correctness = "deny"
-suspicious = "deny"
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
 
 # Warn on these (good practices)
-complexity = "warn"
-perf = "warn"
-style = "warn"
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
 
 # Allow these while learning (can be overwhelming for beginners)
-pedantic = "allow"
-nursery = "allow"
-cargo = "allow"
+pedantic = { level = "allow", priority = -1 }
+nursery = { level = "allow", priority = -1 }
+cargo = { level = "allow", priority = -1 }
 
 # Specific allows for beginner-friendly development
 too_many_arguments = "allow"

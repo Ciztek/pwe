@@ -1,7 +1,8 @@
 {
 	// Rust Analyzer settings for optimal development experience
-	"rust-analyzer.checkOnSave.command": "clippy",
-	"rust-analyzer.checkOnSave.extraArgs": ["--all-targets", "--all-features"],
+	"rust-analyzer.checkOnSave": true,
+	"rust-analyzer.check.command": "clippy",
+	"rust-analyzer.check.extraArgs": [],
 
 	// Auto-format on save
 	"[rust]": {
@@ -14,10 +15,12 @@
 	"rust-analyzer.inlayHints.typeHints.enable": true,
 	"rust-analyzer.inlayHints.parameterHints.enable": true,
 	"rust-analyzer.inlayHints.chainingHints.enable": true,
+	"rust-analyzer.inlayHints.closingBraceHints.enable": false,
 
 	// Cargo features
-	"rust-analyzer.cargo.features": "all",
+	"rust-analyzer.cargo.allFeatures": true,
 	"rust-analyzer.cargo.loadOutDirsFromCheck": true,
+	"rust-analyzer.check.allTargets": true,
 
 	// Proc macro support
 	"rust-analyzer.procMacro.enable": true,
