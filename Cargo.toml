@@ -1,0 +1,74 @@
+[package]
+name = "pwe-karaoke"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Team"]
+description = "Desktop karaoke application with vocal separation using Spleeter"
+
+[dependencies]
+# GUI Framework - Using eframe (egui) for desktop UI
+eframe = "0.29"
+egui = "0.29"
+egui_extras = "0.29"
+
+# Audio playback and processing
+rodio = "0.19"
+symphonia = { version = "0.5", features = ["all"] }
+cpal = "0.15"
+
+# Python integration for Spleeter
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+
+# File handling and async runtime
+tokio = { version = "1.40", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# File dialogs
+rfd = "0.15"
+
+# Path handling
+walkdir = "2.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+# Clippy lints configuration
+[lints.clippy]
+# Deny these (important safety/correctness issues)
+correctness = "deny"
+suspicious = "deny"
+
+# Warn on these (good practices)
+complexity = "warn"
+perf = "warn"
+style = "warn"
+
+# Allow these while learning (can be overwhelming for beginners)
+pedantic = "allow"
+nursery = "allow"
+cargo = "allow"
+
+# Specific allows for beginner-friendly development
+too_many_arguments = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# But still catch important issues
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
