@@ -41,9 +41,31 @@ impl AudioPlayer {
         self.sink.as_ref().map_or(true, |s| s.empty())
     }
 
+    pub fn is_paused(&self) -> bool {
+        self.sink.as_ref().map_or(false, |s| s.is_paused())
+    }
+
+    pub fn pause(&self) {
+        if let Some(sink) = &self.sink {
+            sink.pause();
+        }
+    }
+
+    pub fn resume(&self) {
+        if let Some(sink) = &self.sink {
+            sink.play();
+        }
+    }
+
     pub fn stop(&self) {
         if let Some(sink) = &self.sink {
             sink.stop();
+        }
+    }
+
+    pub fn clear(&self) {
+        if let Some(sink) = &self.sink {
+            sink.clear();
         }
     }
 }
