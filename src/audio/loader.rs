@@ -27,6 +27,30 @@ pub fn load_audio_file<P: AsRef<Path>>(path: P) -> Result<Decoder<BufReader<File
     Ok(decoder)
 }
 
+/// Get duration of an audio file
+pub fn get_audio_duration<P: AsRef<Path>>(path: P) -> Option<std::time::Duration> {
+    let path = path.as_ref();
+
+    // Try to get duration using symphonia
+    let file = File::open(path).ok()?;
+    let mss = symphonia::default::get_probe()
+        .format(
+            &Default::default(),
+            symphonia::core::io::MediaSourceStream::new(Box::new(file), Default::default()),
+            &Default::default(),
+            &Default::default(),
+        )
+        .ok()?;
+
+    let track = mss.format.default_track()?;
+    let time_base = track.codec_params.time_base?;
+    let n_frames = track.codec_params.n_frames?;
+
+    let seconds = time_base.calc_time(n_frames).seconds as f64 + time_base.calc_time(n_frames).frac;
+
+    Some(std::time::Duration::from_secs_f64(seconds))
+}
+
 /// Get a user-friendly error message for audio loading failures
 pub fn format_load_error(err: &anyhow::Error) -> String {
     warn!("Audio loading error: {}", err);

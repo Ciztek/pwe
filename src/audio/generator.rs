@@ -21,7 +21,7 @@ pub fn create_beep(frequency: f32, duration_ms: u32) -> Option<Decoder<Cursor<Ve
         Err(e) => {
             error!("Failed to create audio source: {}", e);
             None
-        }
+        },
     }
 }
 

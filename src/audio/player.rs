@@ -1,11 +1,15 @@
 // Audio player - manages audio output and playback
 use rodio::{OutputStream, Sink};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::error;
 
 pub struct AudioPlayer {
     _output_stream: Option<OutputStream>,
     sink: Option<Arc<Sink>>,
+    start_time: Option<Instant>,
+    pause_time: Option<Instant>,
+    accumulated_time: Duration,
 }
 
 impl AudioPlayer {
@@ -17,16 +21,58 @@ impl AudioPlayer {
                 return Self {
                     _output_stream: None,
                     sink: None,
+                    start_time: None,
+                    pause_time: None,
+                    accumulated_time: Duration::ZERO,
                 };
-            }
+            },
         };
 
-        let sink = Arc::new(Sink::try_new(&stream_handle).unwrap());
+        let sink = match Sink::try_new(&stream_handle) {
+            Ok(s) => Arc::new(s),
+            Err(e) => {
+                error!("Failed to create audio sink: {}", e);
+                return Self {
+                    _output_stream: Some(_stream),
+                    sink: None,
+                    start_time: None,
+                    pause_time: None,
+                    accumulated_time: Duration::ZERO,
+                };
+            },
+        };
 
         Self {
             _output_stream: Some(_stream),
             sink: Some(sink),
+            start_time: None,
+            pause_time: None,
+            accumulated_time: Duration::ZERO,
         }
+    }
+
+    pub fn start_tracking(&mut self) {
+        self.start_time = Some(Instant::now());
+        self.pause_time = None;
+        self.accumulated_time = Duration::ZERO;
+    }
+
+    pub fn get_position(&self) -> Duration {
+        if self.pause_time.is_some() {
+            // Paused: return accumulated time up to pause
+            self.accumulated_time
+        } else if let Some(start) = self.start_time {
+            // Playing: return accumulated + current elapsed
+            self.accumulated_time + start.elapsed()
+        } else {
+            Duration::ZERO
+        }
+    }
+
+    pub fn reset_position(&mut self) {
+        self.start_time = None;
+        self.pause_time = None;
+        self.accumulated_time = Duration::ZERO;
     }
 
     pub fn sink(&self) -> Option<&Arc<Sink>> {
@@ -38,35 +84,49 @@ impl AudioPlayer {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.sink.as_ref().map_or(true, |s| s.empty())
+        self.sink.as_ref().is_none_or(|s| s.empty())
     }
 
     pub fn is_paused(&self) -> bool {
-        self.sink.as_ref().map_or(false, |s| s.is_paused())
+        self.sink.as_ref().is_some_and(|s| s.is_paused())
     }
 
-    pub fn pause(&self) {
+    pub fn pause(&mut self) {
         if let Some(sink) = &self.sink {
             sink.pause();
+            // Save accumulated time when pausing
+            if self.pause_time.is_none() {
+                if let Some(start) = self.start_time {
+                    self.accumulated_time += start.elapsed();
+                    self.pause_time = Some(Instant::now());
+                }
+            }
         }
     }
 
-    pub fn resume(&self) {
+    pub fn resume(&mut self) {
         if let Some(sink) = &self.sink {
             sink.play();
+            // Resume timing when resuming playback
+            if self.pause_time.is_some() {
+                self.start_time = Some(Instant::now());
+                self.pause_time = None;
+            }
         }
     }
 
-    pub fn stop(&self) {
+    pub fn stop(&mut self) {
         if let Some(sink) = &self.sink {
             sink.stop();
         }
+        self.reset_position();
     }
 
-    pub fn clear(&self) {
+    pub fn clear(&mut self) {
         if let Some(sink) = &self.sink {
             sink.clear();
         }
+        self.reset_position();
     }
 }
 
