@@ -1,4 +1,6 @@
 // UI Widgets - reusable UI components
+use super::theme::Theme;
+use crate::library::Song;
 use eframe::egui;
 use std::path::Path;
 use tracing::info;
@@ -8,55 +10,82 @@ pub fn render_file_playback_section(
     is_playing: bool,
     current_file: Option<&Path>,
     error_message: Option<&str>,
+    theme: Theme,
 ) -> AudioAction {
-    ui.heading("🎵 Audio File Playback");
+    // Section header with status indicator
+    ui.horizontal(|ui| {
+        ui.colored_label(theme.primary(), "■");
+        ui.heading(
+            egui::RichText::new("PLAYBACK CONTROL")
+                .color(theme.text_primary())
+                .strong(),
+        );
+    });
     ui.add_space(10.0);
 
     let mut action = AudioAction::None;
 
-    // Display current file
+    // Display current file with technical styling
     if let Some(path) = current_file {
-        ui.horizontal(|ui| {
-            ui.label("Now playing:");
-            ui.monospace(
-                path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("Unknown file"),
-            );
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.colored_label(theme.active(), "▶");
+                ui.label(
+                    egui::RichText::new("TRACK:")
+                        .color(theme.text_muted())
+                        .small(),
+                );
+                ui.add_space(5.0);
+                ui.monospace(
+                    egui::RichText::new(
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("UNKNOWN"),
+                    )
+                    .color(theme.text_primary()),
+                );
+            });
         });
         ui.add_space(10.0);
     }
 
     // Display error if any
     if let Some(error) = error_message {
-        ui.colored_label(egui::Color32::RED, format!("❌ {}", error));
+        ui.colored_label(theme.primary(), format!("⚠ ERROR: {}", error));
         ui.add_space(10.0);
     }
 
-    // Control buttons
+    // Control buttons with IBO styling
     ui.horizontal(|ui| {
-        if ui.button("📂 Open File").clicked() {
+        let open_btn = egui::Button::new(egui::RichText::new("⊡ LOAD FILE").color(theme.primary()));
+        if ui.add(open_btn).clicked() {
             action = AudioAction::OpenFile;
         }
 
         ui.add_space(10.0);
 
-        let play_pause_text = if is_playing { "⏸ Pause" } else { "▶ Play" };
+        let play_pause_text = if is_playing { "⊟ PAUSE" } else { "▶ PLAY" };
         let play_enabled = current_file.is_some();
+        let play_color = if play_enabled {
+            theme.active()
+        } else {
+            egui::Color32::DARK_GRAY
+        };
 
-        if ui
-            .add_enabled(play_enabled, egui::Button::new(play_pause_text))
-            .clicked()
-        {
+        let play_btn = egui::Button::new(egui::RichText::new(play_pause_text).color(play_color));
+        if ui.add_enabled(play_enabled, play_btn).clicked() {
             action = AudioAction::PlayPause;
         }
 
         ui.add_space(10.0);
 
-        if ui
-            .add_enabled(current_file.is_some(), egui::Button::new("⏹ Stop"))
-            .clicked()
-        {
+        let stop_color = if current_file.is_some() {
+            theme.primary()
+        } else {
+            egui::Color32::DARK_GRAY
+        };
+        let stop_btn = egui::Button::new(egui::RichText::new("⊠ STOP").color(stop_color));
+        if ui.add_enabled(current_file.is_some(), stop_btn).clicked() {
             action = AudioAction::Stop;
         }
     });
@@ -65,7 +94,11 @@ pub fn render_file_playback_section(
 
     // Hint when no file loaded
     if current_file.is_none() && error_message.is_none() {
-        ui.label("💡 Click 'Open File' to select an audio file (MP3, FLAC, WAV, OGG, etc.)");
+        ui.label(
+            egui::RichText::new("[SYSTEM READY] Select audio file to begin")
+                .color(theme.text_muted())
+                .italics(),
+        );
     }
 
     action
@@ -174,6 +207,127 @@ pub fn render_info_section(ui: &mut egui::Ui) {
     });
 }
 
+pub fn render_library_section(
+    ui: &mut egui::Ui,
+    library: &[Song],
+    library_path: Option<&Path>,
+    filter: &mut String,
+    theme: Theme,
+) -> LibraryAction {
+    // Section header
+    ui.horizontal(|ui| {
+        ui.colored_label(theme.primary(), "■");
+        ui.heading(
+            egui::RichText::new("LIBRARY DATABASE")
+                .color(theme.text_primary())
+                .strong(),
+        );
+    });
+    ui.add_space(10.0);
+
+    let mut action = LibraryAction::None;
+
+    // Library status and scan button
+    ui.horizontal(|ui| {
+        if let Some(path) = library_path {
+            ui.label(
+                egui::RichText::new(format!("PATH: {}", path.display()))
+                    .color(theme.text_muted())
+                    .small(),
+            );
+            ui.add_space(5.0);
+            ui.colored_label(theme.active(), format!("[{} TRACKS]", library.len()));
+        } else {
+            ui.label(
+                egui::RichText::new("[NO DATABASE LOADED]")
+                    .color(theme.text_muted())
+                    .italics(),
+            );
+        }
+
+        ui.add_space(10.0);
+
+        let scan_btn =
+            egui::Button::new(egui::RichText::new("⊡ SCAN DIRECTORY").color(theme.primary()));
+        if ui.add(scan_btn).clicked() {
+            action = LibraryAction::ScanFolder;
+        }
+    });
+
+    ui.add_space(10.0);
+
+    // Only show search and list if library is loaded
+    if !library.is_empty() {
+        ui.add_space(5.0);
+
+        // Search filter with technical styling
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("FILTER:")
+                    .color(theme.text_muted())
+                    .small(),
+            );
+            ui.text_edit_singleline(filter);
+        });
+
+        ui.add_space(10.0);
+
+        // Filter songs based on search
+        let filtered_songs: Vec<&Song> = if filter.is_empty() {
+            library.iter().collect()
+        } else {
+            let filter_lower = filter.to_lowercase();
+            library
+                .iter()
+                .filter(|song| song.name.to_lowercase().contains(&filter_lower))
+                .collect()
+        };
+
+        // Song list in scrollable area with IBO styling
+        egui::ScrollArea::vertical()
+            .max_height(300.0)
+            .show(ui, |ui| {
+                if filtered_songs.is_empty() {
+                    ui.label(
+                        egui::RichText::new("[NO MATCHES FOUND]")
+                            .color(theme.text_muted())
+                            .italics(),
+                    );
+                } else {
+                    for (idx, song) in filtered_songs.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            // Track number
+                            ui.label(
+                                egui::RichText::new(format!("{:03}", idx + 1))
+                                    .color(theme.text_muted())
+                                    .small(),
+                            );
+
+                            ui.add_space(5.0);
+
+                            // Song name button
+                            let track_btn = egui::Button::new(
+                                egui::RichText::new(&song.name).color(theme.text_primary()),
+                            );
+                            if ui.add(track_btn).clicked() {
+                                action = LibraryAction::PlaySong(song.path.clone());
+                            }
+
+                            // File format badge
+                            ui.label(
+                                egui::RichText::new(format!("[{}]", song.extension.to_uppercase()))
+                                    .small()
+                                    .color(theme.text_muted()),
+                            );
+                        });
+                    }
+                }
+            });
+    }
+
+    action
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioAction {
     None,
@@ -181,4 +335,11 @@ pub enum AudioAction {
     Play,
     PlayPause,
     Stop,
+}
+
+#[derive(Debug, Clone)]
+pub enum LibraryAction {
+    None,
+    ScanFolder,
+    PlaySong(std::path::PathBuf),
 }
