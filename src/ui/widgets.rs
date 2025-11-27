@@ -1,6 +1,75 @@
 // UI Widgets - reusable UI components
 use eframe::egui;
+use std::path::Path;
 use tracing::info;
+
+pub fn render_file_playback_section(
+    ui: &mut egui::Ui,
+    is_playing: bool,
+    current_file: Option<&Path>,
+    error_message: Option<&str>,
+) -> AudioAction {
+    ui.heading("🎵 Audio File Playback");
+    ui.add_space(10.0);
+
+    let mut action = AudioAction::None;
+
+    // Display current file
+    if let Some(path) = current_file {
+        ui.horizontal(|ui| {
+            ui.label("Now playing:");
+            ui.monospace(
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Unknown file"),
+            );
+        });
+        ui.add_space(10.0);
+    }
+
+    // Display error if any
+    if let Some(error) = error_message {
+        ui.colored_label(egui::Color32::RED, format!("❌ {}", error));
+        ui.add_space(10.0);
+    }
+
+    // Control buttons
+    ui.horizontal(|ui| {
+        if ui.button("📂 Open File").clicked() {
+            action = AudioAction::OpenFile;
+        }
+
+        ui.add_space(10.0);
+
+        let play_pause_text = if is_playing { "⏸ Pause" } else { "▶ Play" };
+        let play_enabled = current_file.is_some();
+
+        if ui
+            .add_enabled(play_enabled, egui::Button::new(play_pause_text))
+            .clicked()
+        {
+            action = AudioAction::PlayPause;
+        }
+
+        ui.add_space(10.0);
+
+        if ui
+            .add_enabled(current_file.is_some(), egui::Button::new("⏹ Stop"))
+            .clicked()
+        {
+            action = AudioAction::Stop;
+        }
+    });
+
+    ui.add_space(10.0);
+
+    // Hint when no file loaded
+    if current_file.is_none() && error_message.is_none() {
+        ui.label("💡 Click 'Open File' to select an audio file (MP3, FLAC, WAV, OGG, etc.)");
+    }
+
+    action
+}
 
 pub fn render_text_section(ui: &mut egui::Ui, user_text: &mut String) {
     ui.heading("Welcome to PWE Karaoke!");
@@ -108,6 +177,8 @@ pub fn render_info_section(ui: &mut egui::Ui) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioAction {
     None,
+    OpenFile,
     Play,
+    PlayPause,
     Stop,
 }
