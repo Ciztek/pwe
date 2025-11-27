@@ -4,18 +4,26 @@ use std::path::PathBuf;
 use tracing::{error, info, warn};
 
 use crate::audio::{generator, loader, player::AudioPlayer};
-use crate::ui::{panels, widgets};
+use crate::library::{scanner, Song};
+use crate::ui::{panels, theme::Theme, widgets};
 
 pub struct KaraokeApp {
     // UI State
     counter: i32,
     user_text: String,
+    theme: Theme,
 
     // Audio
     audio_player: AudioPlayer,
     is_playing: bool,
     current_file: Option<PathBuf>,
     error_message: Option<String>,
+    song_duration: Option<std::time::Duration>,
+
+    // Library
+    library: Vec<Song>,
+    library_path: Option<PathBuf>,
+    library_filter: String,
 }
 
 impl KaraokeApp {
@@ -31,10 +39,27 @@ impl KaraokeApp {
         Self {
             counter: 0,
             user_text: String::from("Hello, PWE Karaoke!"),
+            theme: Theme::IronFlower,
             audio_player,
             is_playing: false,
             current_file: None,
             error_message: None,
+            song_duration: None,
+            library: Vec::new(),
+            library_path: None,
+            library_filter: String::new(),
+        }
+    }
+
+    fn scan_library(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Select Library Folder")
+            .pick_folder()
+        {
+            info!("Scanning library: {}", path.display());
+            self.library = scanner::scan_directory(&path);
+            self.library_path = Some(path);
+            info!("Library loaded with {} songs", self.library.len());
         }
     }
 
@@ -51,14 +76,23 @@ impl KaraokeApp {
     fn load_and_play_file(&mut self, path: PathBuf) {
         self.error_message = None;
 
+        // Get duration before loading
+        self.song_duration = loader::get_audio_duration(&path);
+
         match loader::load_audio_file(&path) {
             Ok(decoder) => {
-                if let Some(sink) = self.audio_player.sink() {
+                if self.audio_player.is_available() {
                     // Clear any existing audio
                     self.audio_player.clear();
 
-                    // Add new file to sink
-                    sink.append(decoder);
+                    // Add new file to sink and start playback
+                    if let Some(sink) = self.audio_player.sink() {
+                        sink.append(decoder);
+                        sink.play();
+                    }
+
+                    // Start timing
+                    self.audio_player.start_tracking();
 
                     self.current_file = Some(path);
                     self.is_playing = true;
@@ -110,9 +144,22 @@ impl eframe::App for KaraokeApp {
             self.is_playing = false;
         }
 
+        // Get current playback position
+        let current_position = self.audio_player.get_position();
+
         // Render UI panels
-        panels::render_top_panel(ctx);
-        panels::render_bottom_panel(ctx, self.is_playing, self.counter);
+        let theme_switched = panels::render_top_panel(ctx, self.theme);
+        if theme_switched {
+            self.theme = self.theme.toggle();
+            info!("Theme switched to {:?}", self.theme);
+        }
+        panels::render_bottom_panel(
+            ctx,
+            self.is_playing,
+            current_position,
+            self.song_duration,
+            self.theme,
+        );
 
         // Central panel with main content
         egui::CentralPanel::default().show(ctx, |ui: &mut egui::Ui| {
@@ -121,6 +168,7 @@ impl eframe::App for KaraokeApp {
                 self.is_playing,
                 self.current_file.as_deref(),
                 self.error_message.as_deref(),
+                self.theme,
             );
 
             match audio_action {
@@ -129,6 +177,24 @@ impl eframe::App for KaraokeApp {
                 widgets::AudioAction::Stop => self.stop_audio(),
                 widgets::AudioAction::Play => {}, // Not used in file playback section
                 widgets::AudioAction::None => {},
+            }
+
+            ui.add_space(20.0);
+            ui.separator();
+            ui.add_space(20.0);
+
+            let library_action = widgets::render_library_section(
+                ui,
+                &self.library,
+                self.library_path.as_deref(),
+                &mut self.library_filter,
+                self.theme,
+            );
+
+            match library_action {
+                widgets::LibraryAction::ScanFolder => self.scan_library(),
+                widgets::LibraryAction::PlaySong(path) => self.load_and_play_file(path),
+                widgets::LibraryAction::None => {},
             }
 
             ui.add_space(20.0);
