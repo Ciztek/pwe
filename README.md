@@ -278,11 +278,12 @@ spleeter separate -i path/to/audio.mp3 -o output_folder
 
 ## 📝 License
 
-[Specify your license here]
+C.F `LICENSE` file for details.
 
 ## 👥 Contributors
 
-[Your team members]
+Hosquet Gabriel
+Bregent Julien
 
 ## 🔗 Resources
 
