@@ -1,0 +1,28 @@
+{
+	// Recommended VS Code extensions for PWE Karaoke development
+	"recommendations": [
+		// Rust development
+		"rust-lang.rust-analyzer",
+		"vadimcn.vscode-lldb",
+		"serayuzgur.crates",
+
+		// Python development (for Spleeter)
+		"ms-python.python",
+		"ms-python.vscode-pylance",
+
+		// TOML support
+		"tamasfe.even-better-toml",
+
+		// Git
+		"eamodio.gitlens",
+
+		// Markdown
+		"yzhang.markdown-all-in-one",
+
+		// Error lens (inline error display)
+		"usernamehw.errorlens",
+
+		// Better comments
+		"aaron-bond.better-comments"
+	]
+}
