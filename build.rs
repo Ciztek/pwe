@@ -1,5 +1,3 @@
-use std::env;
-
 fn main() {
     // Set up Python environment for PyO3
     // This helps PyO3 find the correct Python installation

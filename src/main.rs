@@ -1,8 +1,27 @@
-// PWE Karaoke - Main entry point
-// This is just a placeholder to ensure the project structure is set up correctly
+mod app;
+mod audio;
+mod library;
+mod ui;
 
-fn main() {
-    println!("PWE Karaoke - Setup complete!");
-    println!("Environment is ready for development.");
-    println!("Please refer to README.md and SETUP.md for next steps.");
+use app::KaraokeApp;
+
+fn main() -> eframe::Result<()> {
+    // Set up logging
+    tracing_subscriber::fmt::init();
+
+    // Configure window options
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([800.0, 600.0])
+            .with_min_inner_size([400.0, 300.0])
+            .with_title("PWE Karaoke"),
+        ..Default::default()
+    };
+
+    // Run the application
+    eframe::run_native(
+        "PWE Karaoke",
+        options,
+        Box::new(|cc| Ok(Box::<KaraokeApp>::new(KaraokeApp::new(cc)))),
+    )
 }

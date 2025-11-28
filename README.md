@@ -115,25 +115,90 @@ pip install spleeter
 
 ### 2. Build the Project
 
+#### Quick Start (Linux Development Build)
+
 ```bash
-# Development build
+# Development build (faster compilation, no optimizations)
 cargo build
 
-# Release build (optimized)
-cargo build --release
+# Run directly
+cargo run
 ```
 
-### 3. Run the Application
+#### Linux Release Build (Optimized)
+
+```bash
+# Build optimized executable
+cargo build --release
+
+# Executable located at:
+# target/release/pwe-karaoke
+
+# Run the release build
+./target/release/pwe-karaoke
+```
+
+#### Windows Cross-Compilation (from Linux/WSL)
+
+**Prerequisites:**
+
+```bash
+# Install MinGW cross-compiler
+sudo apt-get install -y mingw-w64
+
+# Add Windows target to Rust
+rustup target add x86_64-pc-windows-gnu
+```
+
+**Build Windows Executable:**
+
+```bash
+# Build for Windows (without Python/Spleeter support)
+cargo build --release --target x86_64-pc-windows-gnu --no-default-features
+
+# Executable located at:
+# target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe
+
+# Copy to Windows (adjust path for your system)
+cp target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe /mnt/c/Users/YourUsername/Desktop/
+```
+
+**Note:** Windows builds exclude PyO3/Spleeter by default (`--no-default-features`) to avoid cross-compilation complexity.
+
+#### Build with Spleeter Support (Linux only)
 
 ```bash
 # Make sure Python virtual environment is activated
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
-# Run in development mode
+# Build with Spleeter feature enabled
+cargo build --release --features spleeter
+
+# Run with Spleeter support
+./target/release/pwe-karaoke
+```
+
+### 3. Build Summary
+
+| Platform | Command | Output Location | Features |
+|----------|---------|-----------------|----------|
+| Linux Dev | `cargo build` | `target/debug/pwe-karaoke` | Fast compile, debug symbols |
+| Linux Release | `cargo build --release` | `target/release/pwe-karaoke` | Optimized, ~12MB |
+| Linux + Spleeter | `cargo build --release --features spleeter` | `target/release/pwe-karaoke` | With Python integration |
+| Windows .exe | `cargo build --release --target x86_64-pc-windows-gnu --no-default-features` | `target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe` | Cross-compiled, no Python |
+
+### 4. Run the Application
+
+```bash
+# Development mode (with hot-reload)
 cargo run
 
-# Run release version
+# Release mode (optimized)
 cargo run --release
+
+# With Spleeter support (activate venv first)
+source venv/bin/activate
+cargo run --release --features spleeter
 ```
 
 ## 📦 Dependencies
@@ -149,26 +214,30 @@ cargo run --release
 #### Audio Processing
 
 - **rodio** (0.19): High-level audio playback
-- **symphonia** (0.5): Audio decoding for multiple formats
+- **symphonia** (0.5): Audio decoding for multiple formats (MP3, FLAC, WAV, OGG, etc.)
 - **cpal** (0.15): Cross-platform audio I/O
 
-#### Python Integration
+#### Python Integration (Optional)
 
-- **pyo3** (0.22): Rust bindings for Python (for Spleeter integration)
+- **pyo3** (0.22): Rust bindings for Python (optional, only needed for Spleeter)
+  - Enabled with `--features spleeter`
+  - Not included in default or Windows builds to simplify cross-compilation
 
 #### Async & Utilities
 
-- **tokio** (1.40): Async runtime for background tasks
-- **serde** (1.0) + **serde_json**: Serialization/deserialization
-- **anyhow** (1.0): Error handling
-- **thiserror** (1.0): Custom error types
-- **tracing** (0.1) + **tracing-subscriber** (0.3): Logging
+- **tokio** (1.40): Async runtime with full features
+- **serde** (1.0) + **serde_json** (1.0): Serialization/deserialization
+- **anyhow** (1.0): Flexible error handling
+- **thiserror** (1.0): Custom error derive macros
+- **tracing** (0.1) + **tracing-subscriber** (0.3): Structured logging
 - **rfd** (0.15): Native file dialogs
-- **walkdir** (2.5): Directory traversal
+- **walkdir** (2.5): Recursive directory traversal
 
-### Python Dependencies
+### Python Dependencies (Optional)
 
 - **spleeter**: Vocal separation engine by Deezer
+  - Only required when building with `--features spleeter`
+  - Requires Python 3.8+ and FFmpeg
 
 ## 🎯 Planned Features
 

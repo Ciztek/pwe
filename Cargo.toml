@@ -16,8 +16,8 @@ rodio = "0.19"
 symphonia = { version = "0.5", features = ["all"] }
 cpal = "0.15"
 
-# Python integration for Spleeter
-pyo3 = { version = "0.22", features = ["auto-initialize"] }
+# Python integration for Spleeter (optional for cross-compilation)
+pyo3 = { version = "0.22", features = ["auto-initialize"], optional = true }
 
 # File handling and async runtime
 tokio = { version = "1.40", features = ["full"] }
@@ -37,6 +37,10 @@ rfd = "0.15"
 
 # Path handling
 walkdir = "2.5"
+
+[features]
+default = []
+spleeter = ["pyo3"]
 
 [profile.release]
 opt-level = 3
