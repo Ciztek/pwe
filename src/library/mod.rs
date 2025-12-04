@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub struct Song {
     pub path: PathBuf,
     pub name: String,
+    #[allow(dead_code)]
     pub extension: String,
 }
 

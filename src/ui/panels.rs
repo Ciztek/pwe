@@ -4,6 +4,7 @@ use eframe::egui;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum PlaybackAction {
     None,
     PlayPause,

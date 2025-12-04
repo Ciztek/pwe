@@ -163,7 +163,7 @@ pub fn render_library_section(
     ui: &mut egui::Ui,
     library: &[Song],
     _library_path: Option<&Path>,
-    filter: &mut String,
+    filter: &mut str,
     path_input: &mut String,
     theme: Theme,
 ) -> LibraryAction {
