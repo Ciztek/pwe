@@ -55,7 +55,8 @@
 	"files.watcherExclude": {
 		"**/target/**": true,
 		"**/venv/**": true,
-		"**/__pycache__/**": true
+		"**/__pycache__/**": true,
+		"**/.direnv/**": true
 	},
 
 	// Editor settings
