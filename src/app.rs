@@ -164,6 +164,7 @@ impl KaraokeApp {
     }
 
     fn setup_fonts(ctx: &egui::Context) {
+        #[allow(unused_mut)]
         let mut fonts = egui::FontDefinitions::default();
 
         #[cfg(feature = "custom-font")]
