@@ -1,4 +1,3 @@
-// Main application logic
 use eframe::egui;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
@@ -73,25 +72,31 @@ impl KaraokeApp {
         }
     }
 
+    /// Loads an audio file and starts playback.
+    ///
+    /// # Parameters
+    /// - `path`: Path to audio file (must exist and be a valid format)
+    ///
+    /// # Behavior
+    /// - Attempts to read duration metadata
+    /// - Loads file with audio decoder
+    /// - Starts playback immediately
+    /// - Sets error_message if loading fails
     fn load_and_play_file(&mut self, path: PathBuf) {
         self.error_message = None;
 
-        // Get duration before loading
         self.song_duration = loader::get_audio_duration(&path);
 
         match loader::load_audio_file(&path) {
             Ok(decoder) => {
                 if self.audio_player.is_available() {
-                    // Clear any existing audio
                     self.audio_player.clear();
 
-                    // Add new file to sink and start playback
                     if let Some(sink) = self.audio_player.sink() {
                         sink.append(decoder);
                         sink.play();
                     }
 
-                    // Start timing
                     self.audio_player.start_tracking();
 
                     self.current_file = Some(path);
@@ -139,15 +144,12 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Update playing state
         if self.is_playing && self.audio_player.is_empty() {
             self.is_playing = false;
         }
 
-        // Get current playback position
         let current_position = self.audio_player.get_position();
 
-        // Render UI panels
         let theme_switched = panels::render_top_panel(ctx, self.theme);
         if theme_switched {
             self.theme = self.theme.toggle();
@@ -161,7 +163,6 @@ impl eframe::App for KaraokeApp {
             self.theme,
         );
 
-        // Central panel with main content
         egui::CentralPanel::default().show(ctx, |ui: &mut egui::Ui| {
             let audio_action = widgets::render_file_playback_section(
                 ui,

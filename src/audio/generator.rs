@@ -1,8 +1,16 @@
-// Audio generator - creates synthesized sounds
 use rodio::Decoder;
 use std::io::Cursor;
 use tracing::error;
 
+/// Generates a sine wave beep tone as an audio decoder.
+///
+/// # Parameters
+/// - `frequency`: Tone frequency in Hz (e.g., 440.0 for A4)
+/// - `duration_ms`: Duration in milliseconds
+///
+/// # Returns
+/// - `Some(Decoder)`: Successfully generated audio
+/// - `None`: Failed to create WAV decoder (should rarely happen)
 pub fn create_beep(frequency: f32, duration_ms: u32) -> Option<Decoder<Cursor<Vec<u8>>>> {
     let sample_rate = 44100;
 
@@ -35,12 +43,10 @@ fn create_wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
 
     let mut bytes = Vec::new();
 
-    // RIFF header
     bytes.extend_from_slice(b"RIFF");
     bytes.extend_from_slice(&(36 + data_size).to_le_bytes());
     bytes.extend_from_slice(b"WAVE");
 
-    // fmt chunk
     bytes.extend_from_slice(b"fmt ");
     bytes.extend_from_slice(&16u32.to_le_bytes());
     bytes.extend_from_slice(&1u16.to_le_bytes());
@@ -50,11 +56,9 @@ fn create_wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
     bytes.extend_from_slice(&block_align.to_le_bytes());
     bytes.extend_from_slice(&bits_per_sample.to_le_bytes());
 
-    // data chunk
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&data_size.to_le_bytes());
 
-    // PCM data
     for &sample in samples {
         bytes.extend_from_slice(&sample.to_le_bytes());
     }

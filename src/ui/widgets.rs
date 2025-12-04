@@ -1,4 +1,3 @@
-// UI Widgets - reusable UI components
 use super::theme::Theme;
 use crate::library::Song;
 use eframe::egui;
@@ -21,6 +20,17 @@ pub enum LibraryAction {
     PlaySong(std::path::PathBuf),
 }
 
+/// Renders the file playback control panel with load/play/pause/stop buttons.
+///
+/// # Parameters
+/// - `ui`: egui UI context
+/// - `is_playing`: Current playback state
+/// - `current_file`: Path to currently loaded file (if any)
+/// - `error_message`: Error message to display (if any)
+/// - `theme`: Color theme for UI elements
+///
+/// # Returns
+/// AudioAction indicating which button was clicked (None if no interaction)
 pub fn render_file_playback_section(
     ui: &mut egui::Ui,
     is_playing: bool,
@@ -28,7 +38,6 @@ pub fn render_file_playback_section(
     error_message: Option<&str>,
     theme: Theme,
 ) -> AudioAction {
-    // Section header with status indicator
     ui.horizontal(|ui| {
         ui.colored_label(theme.primary(), "■");
         ui.heading(
@@ -41,7 +50,6 @@ pub fn render_file_playback_section(
 
     let mut action = AudioAction::None;
 
-    // Display current file with technical styling
     if let Some(path) = current_file {
         ui.group(|ui| {
             ui.horizontal(|ui| {
@@ -65,13 +73,11 @@ pub fn render_file_playback_section(
         ui.add_space(10.0);
     }
 
-    // Display error if any
     if let Some(error) = error_message {
         ui.colored_label(theme.primary(), format!("⚠ ERROR: {}", error));
         ui.add_space(10.0);
     }
 
-    // Control buttons with IBO styling
     ui.horizontal(|ui| {
         let open_btn = egui::Button::new(egui::RichText::new("⊡ LOAD FILE").color(theme.primary()));
         if ui.add(open_btn).clicked() {
@@ -108,7 +114,6 @@ pub fn render_file_playback_section(
 
     ui.add_space(10.0);
 
-    // Hint when no file loaded
     if current_file.is_none() && error_message.is_none() {
         ui.label(
             egui::RichText::new("[SYSTEM READY] Select audio file to begin")
@@ -124,7 +129,6 @@ pub fn render_text_section(ui: &mut egui::Ui, user_text: &mut String) {
     ui.heading("Welcome to PWE Karaoke!");
     ui.add_space(20.0);
 
-    // Text display
     ui.horizontal(|ui| {
         ui.label("Current text:");
         ui.monospace(&*user_text);
@@ -132,7 +136,6 @@ pub fn render_text_section(ui: &mut egui::Ui, user_text: &mut String) {
 
     ui.add_space(10.0);
 
-    // Text input
     ui.horizontal(|ui| {
         ui.label("Edit text:");
         ui.text_edit_singleline(user_text);
@@ -230,7 +233,6 @@ pub fn render_library_section(
     filter: &mut String,
     theme: Theme,
 ) -> LibraryAction {
-    // Section header
     ui.horizontal(|ui| {
         ui.colored_label(theme.primary(), "■");
         ui.heading(
@@ -243,7 +245,6 @@ pub fn render_library_section(
 
     let mut action = LibraryAction::None;
 
-    // Library status and scan button
     ui.horizontal(|ui| {
         if let Some(path) = library_path {
             ui.label(
@@ -272,11 +273,9 @@ pub fn render_library_section(
 
     ui.add_space(10.0);
 
-    // Only show search and list if library is loaded
     if !library.is_empty() {
         ui.add_space(5.0);
 
-        // Search filter with technical styling
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("FILTER:")
@@ -288,7 +287,6 @@ pub fn render_library_section(
 
         ui.add_space(10.0);
 
-        // Filter songs based on search
         let filtered_songs: Vec<&Song> = if filter.is_empty() {
             library.iter().collect()
         } else {
@@ -299,7 +297,6 @@ pub fn render_library_section(
                 .collect()
         };
 
-        // Song list in scrollable area with IBO styling
         egui::ScrollArea::vertical()
             .max_height(300.0)
             .show(ui, |ui| {
@@ -312,7 +309,6 @@ pub fn render_library_section(
                 } else {
                     for (idx, song) in filtered_songs.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            // Track number
                             ui.label(
                                 egui::RichText::new(format!("{:03}", idx + 1))
                                     .color(theme.text_muted())
@@ -321,7 +317,6 @@ pub fn render_library_section(
 
                             ui.add_space(5.0);
 
-                            // Song name button
                             let track_btn = egui::Button::new(
                                 egui::RichText::new(&song.name).color(theme.text_primary()),
                             );
@@ -329,7 +324,6 @@ pub fn render_library_section(
                                 action = LibraryAction::PlaySong(song.path.clone());
                             }
 
-                            // File format badge
                             ui.label(
                                 egui::RichText::new(format!("[{}]", song.extension.to_uppercase()))
                                     .small()

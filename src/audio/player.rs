@@ -1,9 +1,12 @@
-// Audio player - manages audio output and playback
 use rodio::{OutputStream, Sink};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::error;
 
+/// Manages audio playback with play/pause/stop controls and timing tracking.
+///
+/// The sink is an audio queue that handles mixing, volume, and playback state.
+/// Timing is tracked separately to handle pause/resume correctly.
 pub struct AudioPlayer {
     _output_stream: Option<OutputStream>,
     sink: Option<Arc<Sink>>,
@@ -28,9 +31,6 @@ impl AudioPlayer {
             },
         };
 
-        // Create a sink - an audio queue that manages playback of audio sources
-        // The sink handles mixing, volume control, and playback state (play/pause/stop)
-        // We wrap it in Arc to allow shared ownership across the application
         let sink = match Sink::try_new(&stream_handle) {
             Ok(s) => Arc::new(s),
             Err(e) => {
@@ -62,10 +62,8 @@ impl AudioPlayer {
 
     pub fn get_position(&self) -> Duration {
         if self.pause_time.is_some() {
-            // Paused: return accumulated time up to pause
             self.accumulated_time
         } else if let Some(start) = self.start_time {
-            // Playing: return accumulated + current elapsed
             self.accumulated_time + start.elapsed()
         } else {
             Duration::ZERO
@@ -97,7 +95,6 @@ impl AudioPlayer {
     pub fn pause(&mut self) {
         if let Some(sink) = &self.sink {
             sink.pause();
-            // Save accumulated time when pausing
             if self.pause_time.is_none() {
                 if let Some(start) = self.start_time {
                     self.accumulated_time += start.elapsed();
@@ -110,7 +107,6 @@ impl AudioPlayer {
     pub fn resume(&mut self) {
         if let Some(sink) = &self.sink {
             sink.play();
-            // Resume timing when resuming playback
             if self.pause_time.is_some() {
                 self.start_time = Some(Instant::now());
                 self.pause_time = None;

@@ -3,19 +3,22 @@ pub mod scanner;
 
 use std::path::PathBuf;
 
-/// Represents a song in the library
 #[derive(Debug, Clone)]
 pub struct Song {
-    /// Full path to the audio file
     pub path: PathBuf,
-    /// Display name (filename without extension)
     pub name: String,
-    /// File extension
     pub extension: String,
 }
 
 impl Song {
-    /// Create a new Song from a path
+    /// Creates a Song from a file path by extracting name and extension.
+    ///
+    /// # Parameters
+    /// - `path`: Full path to the audio file
+    ///
+    /// # Returns
+    /// - `Some(Song)`: Successfully parsed filename and extension
+    /// - `None`: Path has no filename, invalid UTF-8, or no extension
     pub fn from_path(path: PathBuf) -> Option<Self> {
         let name = path
             .file_stem()
