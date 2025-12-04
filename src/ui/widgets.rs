@@ -1,10 +1,37 @@
-// UI Widgets - reusable UI components
 use super::theme::Theme;
 use crate::library::Song;
 use eframe::egui;
 use std::path::Path;
-use tracing::info;
 
+pub fn render_armor_card<R>(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let frame = egui::Frame::none()
+        .fill(theme.card_surface())
+        .inner_margin(egui::Margin::same(16.0))
+        .stroke(egui::Stroke::new(1.0, theme.secondary()));
+
+    frame
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(3.0, ui.available_height()),
+                    egui::Sense::hover(),
+                );
+                ui.painter().rect_filled(rect, 0.0, theme.primary());
+
+                ui.add_space(8.0);
+
+                ui.vertical(|ui| add_contents(ui)).inner
+            })
+            .inner
+        })
+        .inner
+}
+
+#[allow(dead_code)]
 pub fn render_file_playback_section(
     ui: &mut egui::Ui,
     is_playing: bool,
@@ -12,267 +39,261 @@ pub fn render_file_playback_section(
     error_message: Option<&str>,
     theme: Theme,
 ) -> AudioAction {
-    // Section header with status indicator
-    ui.horizontal(|ui| {
-        ui.colored_label(theme.primary(), "■");
-        ui.heading(
-            egui::RichText::new("PLAYBACK CONTROL")
-                .color(theme.text_primary())
-                .strong(),
-        );
-    });
-    ui.add_space(10.0);
-
     let mut action = AudioAction::None;
 
-    // Display current file with technical styling
-    if let Some(path) = current_file {
-        ui.group(|ui| {
+    render_armor_card(ui, theme, |ui| {
+        ui.horizontal(|ui| {
+            let status_text = if is_playing { "▶" } else { "■" };
+            let status_color = if is_playing {
+                theme.accent()
+            } else {
+                theme.secondary()
+            };
+
+            ui.label(
+                egui::RichText::new(status_text)
+                    .size(18.0)
+                    .color(status_color)
+                    .strong(),
+            );
+
+            ui.label(
+                egui::RichText::new("PLAYBACK CONTROL")
+                    .size(16.0)
+                    .color(theme.primary())
+                    .strong(),
+            );
+        });
+
+        ui.add_space(12.0);
+
+        if let Some(path) = current_file {
             ui.horizontal(|ui| {
-                ui.colored_label(theme.active(), "▶");
                 ui.label(
                     egui::RichText::new("TRACK:")
                         .color(theme.text_muted())
-                        .small(),
+                        .size(11.0),
                 );
-                ui.add_space(5.0);
-                ui.monospace(
+                ui.label(
                     egui::RichText::new(
                         path.file_name()
                             .and_then(|n| n.to_str())
-                            .unwrap_or("UNKNOWN"),
+                            .unwrap_or("[UNKNOWN]"),
                     )
-                    .color(theme.text_primary()),
+                    .color(theme.text_primary())
+                    .size(13.0)
+                    .monospace(),
                 );
             });
+
+            ui.add_space(8.0);
+        } else if error_message.is_none() {
+            ui.label(
+                egui::RichText::new("[ SYSTEM READY - SELECT AUDIO FILE ]")
+                    .color(theme.text_muted())
+                    .italics()
+                    .size(12.0),
+            );
+            ui.add_space(8.0);
+        }
+
+        if let Some(error) = error_message {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("⚠").color(theme.alert()).size(14.0));
+                ui.label(egui::RichText::new(error).color(theme.alert()).size(12.0));
+            });
+            ui.add_space(8.0);
+        }
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        ui.horizontal(|ui| {
+            let load_btn = egui::Button::new(
+                egui::RichText::new("[ LOAD FILE ]")
+                    .color(theme.primary())
+                    .size(13.0),
+            );
+
+            if ui.add(load_btn).clicked() {
+                action = AudioAction::OpenFile;
+            }
+
+            ui.add_space(12.0);
+
+            let play_enabled = current_file.is_some();
+            let play_text = if is_playing { "[ PAUSE ]" } else { "[ PLAY ]" };
+            let play_color = if play_enabled {
+                theme.accent()
+            } else {
+                theme.text_muted()
+            };
+
+            let play_btn =
+                egui::Button::new(egui::RichText::new(play_text).color(play_color).size(13.0));
+
+            if ui.add_enabled(play_enabled, play_btn).clicked() {
+                action = AudioAction::PlayPause;
+            }
+
+            ui.add_space(12.0);
+
+            let stop_enabled = current_file.is_some();
+            let stop_color = if stop_enabled {
+                theme.secondary()
+            } else {
+                theme.text_muted()
+            };
+
+            let stop_btn =
+                egui::Button::new(egui::RichText::new("[ STOP ]").color(stop_color).size(13.0));
+
+            if ui.add_enabled(stop_enabled, stop_btn).clicked() {
+                action = AudioAction::Stop;
+            }
         });
-        ui.add_space(10.0);
-    }
-
-    // Display error if any
-    if let Some(error) = error_message {
-        ui.colored_label(theme.primary(), format!("⚠ ERROR: {}", error));
-        ui.add_space(10.0);
-    }
-
-    // Control buttons with IBO styling
-    ui.horizontal(|ui| {
-        let open_btn = egui::Button::new(egui::RichText::new("⊡ LOAD FILE").color(theme.primary()));
-        if ui.add(open_btn).clicked() {
-            action = AudioAction::OpenFile;
-        }
-
-        ui.add_space(10.0);
-
-        let play_pause_text = if is_playing { "⊟ PAUSE" } else { "▶ PLAY" };
-        let play_enabled = current_file.is_some();
-        let play_color = if play_enabled {
-            theme.active()
-        } else {
-            egui::Color32::DARK_GRAY
-        };
-
-        let play_btn = egui::Button::new(egui::RichText::new(play_pause_text).color(play_color));
-        if ui.add_enabled(play_enabled, play_btn).clicked() {
-            action = AudioAction::PlayPause;
-        }
-
-        ui.add_space(10.0);
-
-        let stop_color = if current_file.is_some() {
-            theme.primary()
-        } else {
-            egui::Color32::DARK_GRAY
-        };
-        let stop_btn = egui::Button::new(egui::RichText::new("⊠ STOP").color(stop_color));
-        if ui.add_enabled(current_file.is_some(), stop_btn).clicked() {
-            action = AudioAction::Stop;
-        }
     });
-
-    ui.add_space(10.0);
-
-    // Hint when no file loaded
-    if current_file.is_none() && error_message.is_none() {
-        ui.label(
-            egui::RichText::new("[SYSTEM READY] Select audio file to begin")
-                .color(theme.text_muted())
-                .italics(),
-        );
-    }
 
     action
-}
-
-pub fn render_text_section(ui: &mut egui::Ui, user_text: &mut String) {
-    ui.heading("Welcome to PWE Karaoke!");
-    ui.add_space(20.0);
-
-    // Text display
-    ui.horizontal(|ui| {
-        ui.label("Current text:");
-        ui.monospace(&*user_text);
-    });
-
-    ui.add_space(10.0);
-
-    // Text input
-    ui.horizontal(|ui| {
-        ui.label("Edit text:");
-        ui.text_edit_singleline(user_text);
-    });
-
-    ui.add_space(20.0);
-    ui.separator();
-    ui.add_space(20.0);
-}
-
-pub fn render_counter_section(ui: &mut egui::Ui, counter: &mut i32) {
-    ui.heading("Counter Demo");
-    ui.add_space(10.0);
-
-    ui.horizontal(|ui| {
-        if ui.button("➖ Decrement").clicked() {
-            *counter -= 1;
-            info!("Counter decremented to {}", counter);
-        }
-
-        ui.add_space(10.0);
-        ui.label(format!("Value: {}", counter));
-        ui.add_space(10.0);
-
-        if ui.button("➕ Increment").clicked() {
-            *counter += 1;
-            info!("Counter incremented to {}", counter);
-        }
-
-        ui.add_space(10.0);
-
-        if ui.button("🔄 Reset").clicked() {
-            *counter = 0;
-            info!("Counter reset");
-        }
-    });
-
-    ui.add_space(20.0);
-    ui.separator();
-    ui.add_space(20.0);
-}
-
-pub fn render_audio_section(ui: &mut egui::Ui, is_playing: bool) -> AudioAction {
-    ui.heading("Audio Test");
-    ui.add_space(10.0);
-
-    let mut action = AudioAction::None;
-
-    ui.horizontal(|ui| {
-        let button_text = if is_playing {
-            "🔊 Playing..."
-        } else {
-            "🔔 Play Beep"
-        };
-
-        if ui
-            .add_enabled(!is_playing, egui::Button::new(button_text))
-            .clicked()
-        {
-            action = AudioAction::Play;
-        }
-
-        ui.add_space(10.0);
-
-        if ui
-            .add_enabled(is_playing, egui::Button::new("⏹ Stop"))
-            .clicked()
-        {
-            action = AudioAction::Stop;
-        }
-    });
-
-    ui.add_space(20.0);
-    ui.separator();
-    ui.add_space(20.0);
-
-    action
-}
-
-pub fn render_info_section(ui: &mut egui::Ui) {
-    ui.group(|ui| {
-        ui.label("ℹ️ About this demo:");
-        ui.add_space(5.0);
-        ui.label("• Edit text in the input field");
-        ui.label("• Use counter buttons to increment/decrement");
-        ui.label("• Play a test beep sound (440Hz A4 note)");
-        ui.label("• Close the window to exit the application");
-    });
 }
 
 pub fn render_library_section(
     ui: &mut egui::Ui,
     library: &[Song],
-    library_path: Option<&Path>,
+    _library_path: Option<&Path>,
     filter: &mut String,
+    path_input: &mut String,
     theme: Theme,
 ) -> LibraryAction {
-    // Section header
-    ui.horizontal(|ui| {
-        ui.colored_label(theme.primary(), "■");
-        ui.heading(
-            egui::RichText::new("LIBRARY DATABASE")
-                .color(theme.text_primary())
-                .strong(),
-        );
-    });
-    ui.add_space(10.0);
-
     let mut action = LibraryAction::None;
 
-    // Library status and scan button
+    render_armor_card(ui, theme, |ui| {
+        ui.horizontal(|ui| {
+            let art_size = egui::vec2(80.0, 80.0);
+            let (rect, _) = ui.allocate_exact_size(art_size, egui::Sense::hover());
+            ui.painter()
+                .rect_filled(rect, 2.0, theme.card_surface().gamma_multiply(0.7));
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "[ Art ]",
+                egui::FontId::proportional(10.0),
+                theme.text_muted(),
+            );
+
+            ui.add_space(16.0);
+
+            ui.vertical(|ui| {
+                if library.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No Library Loaded")
+                            .size(18.0)
+                            .color(theme.text_muted())
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("Scan a directory to get started")
+                            .size(12.0)
+                            .color(theme.text_muted())
+                            .italics(),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(&library[0].name)
+                            .size(18.0)
+                            .color(theme.text_primary())
+                            .strong(),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("{} tracks loaded", library.len()))
+                            .size(12.0)
+                            .color(theme.text_muted()),
+                    );
+                }
+
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(
+                            egui::RichText::new("[ PLAY ]")
+                                .color(theme.accent())
+                                .size(13.0),
+                        )
+                        .clicked()
+                        && !library.is_empty()
+                    {
+                        action = LibraryAction::PlaySong(library[0].path.clone());
+                    }
+
+                    ui.add_space(8.0);
+
+                    if ui
+                        .button(
+                            egui::RichText::new("[ Add to Q ]")
+                                .color(theme.secondary())
+                                .size(13.0),
+                        )
+                        .clicked()
+                    {
+                        tracing::info!("Add to queue - to be implemented");
+                    }
+                });
+            });
+        });
+    });
+
+    ui.add_space(20.0);
+
     ui.horizontal(|ui| {
-        if let Some(path) = library_path {
-            ui.label(
-                egui::RichText::new(format!("PATH: {}", path.display()))
-                    .color(theme.text_muted())
-                    .small(),
-            );
-            ui.add_space(5.0);
-            ui.colored_label(theme.active(), format!("[{} TRACKS]", library.len()));
-        } else {
-            ui.label(
-                egui::RichText::new("[NO DATABASE LOADED]")
-                    .color(theme.text_muted())
-                    .italics(),
-            );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("LIBRARY PATH:")
+                .color(theme.text_muted())
+                .size(11.0),
+        );
+
+        let available = ui.available_width() - 150.0;
+        let path_edit = ui.add(
+            egui::TextEdit::singleline(path_input)
+                .desired_width(available.max(200.0))
+                .hint_text("/path/to/music/folder")
+                .font(egui::TextStyle::Monospace),
+        );
+
+        if ui
+            .button(
+                egui::RichText::new("[ LOAD ]")
+                    .color(theme.accent())
+                    .size(11.0),
+            )
+            .clicked()
+            || (path_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+        {
+            action = LibraryAction::ScanFromInput;
         }
 
-        ui.add_space(10.0);
+        ui.add_space(8.0);
 
-        let scan_btn =
-            egui::Button::new(egui::RichText::new("⊡ SCAN DIRECTORY").color(theme.primary()));
+        let scan_btn = egui::Button::new(
+            egui::RichText::new("[ SCAN ]")
+                .color(theme.primary())
+                .size(11.0),
+        );
         if ui.add(scan_btn).clicked() {
             action = LibraryAction::ScanFolder;
         }
+
+        ui.add_space(4.0);
     });
 
-    ui.add_space(10.0);
+    ui.add_space(16.0);
 
-    // Only show search and list if library is loaded
     if !library.is_empty() {
-        ui.add_space(5.0);
-
-        // Search filter with technical styling
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("FILTER:")
-                    .color(theme.text_muted())
-                    .small(),
-            );
-            ui.text_edit_singleline(filter);
-        });
-
-        ui.add_space(10.0);
-
-        // Filter songs based on search
         let filtered_songs: Vec<&Song> = if filter.is_empty() {
             library.iter().collect()
         } else {
@@ -283,43 +304,75 @@ pub fn render_library_section(
                 .collect()
         };
 
-        // Song list in scrollable area with IBO styling
         egui::ScrollArea::vertical()
-            .max_height(300.0)
+            .auto_shrink([false; 2])
+            .max_height(ui.available_height().max(100.0))
             .show(ui, |ui| {
                 if filtered_songs.is_empty() {
-                    ui.label(
-                        egui::RichText::new("[NO MATCHES FOUND]")
-                            .color(theme.text_muted())
-                            .italics(),
-                    );
+                    ui.centered_and_justified(|ui| {
+                        ui.label(
+                            egui::RichText::new("[ NO MATCHES FOUND ]")
+                                .color(theme.text_muted())
+                                .italics(),
+                        );
+                    });
                 } else {
                     for (idx, song) in filtered_songs.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            // Track number
                             ui.label(
-                                egui::RichText::new(format!("{:03}", idx + 1))
+                                egui::RichText::new(format!("{:02}.", idx + 1))
                                     .color(theme.text_muted())
-                                    .small(),
+                                    .size(12.0)
+                                    .monospace(),
                             );
 
-                            ui.add_space(5.0);
+                            ui.add_space(8.0);
 
-                            // Song name button
-                            let track_btn = egui::Button::new(
-                                egui::RichText::new(&song.name).color(theme.text_primary()),
+                            let song_label = ui.add(
+                                egui::Label::new(
+                                    egui::RichText::new(&song.name)
+                                        .color(theme.text_primary())
+                                        .size(13.0),
+                                )
+                                .sense(egui::Sense::click()),
                             );
-                            if ui.add(track_btn).clicked() {
+
+                            if song_label.clicked() {
                                 action = LibraryAction::PlaySong(song.path.clone());
                             }
 
-                            // File format badge
-                            ui.label(
-                                egui::RichText::new(format!("[{}]", song.extension.to_uppercase()))
-                                    .small()
-                                    .color(theme.text_muted()),
+                            if song_label.hovered() {
+                                ui.painter().rect_stroke(
+                                    song_label.rect.expand(2.0),
+                                    2.0,
+                                    egui::Stroke::new(1.0, theme.accent()),
+                                );
+                            }
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        egui::RichText::new("[Mic]")
+                                            .size(11.0)
+                                            .color(theme.secondary()),
+                                    );
+
+                                    ui.add_space(12.0);
+
+                                    ui.label(
+                                        egui::RichText::new("3:42")
+                                            .size(12.0)
+                                            .color(theme.text_muted())
+                                            .monospace(),
+                                    );
+                                },
                             );
                         });
+
+                        if idx < filtered_songs.len() - 1 {
+                            ui.add_space(4.0);
+                        }
                     }
                 }
             });
@@ -328,6 +381,7 @@ pub fn render_library_section(
     action
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioAction {
     None,
@@ -341,5 +395,6 @@ pub enum AudioAction {
 pub enum LibraryAction {
     None,
     ScanFolder,
+    ScanFromInput,
     PlaySong(std::path::PathBuf),
 }
