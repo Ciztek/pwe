@@ -28,6 +28,9 @@ impl AudioPlayer {
             },
         };
 
+        // Create a sink - an audio queue that manages playback of audio sources
+        // The sink handles mixing, volume control, and playback state (play/pause/stop)
+        // We wrap it in Arc to allow shared ownership across the application
         let sink = match Sink::try_new(&stream_handle) {
             Ok(s) => Arc::new(s),
             Err(e) => {

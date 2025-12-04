@@ -5,6 +5,22 @@ use eframe::egui;
 use std::path::Path;
 use tracing::info;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioAction {
+    None,
+    OpenFile,
+    Play,
+    PlayPause,
+    Stop,
+}
+
+#[derive(Debug, Clone)]
+pub enum LibraryAction {
+    None,
+    ScanFolder,
+    PlaySong(std::path::PathBuf),
+}
+
 pub fn render_file_playback_section(
     ui: &mut egui::Ui,
     is_playing: bool,
@@ -326,20 +342,4 @@ pub fn render_library_section(
     }
 
     action
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioAction {
-    None,
-    OpenFile,
-    Play,
-    PlayPause,
-    Stop,
-}
-
-#[derive(Debug, Clone)]
-pub enum LibraryAction {
-    None,
-    ScanFolder,
-    PlaySong(std::path::PathBuf),
 }
