@@ -1,4 +1,3 @@
-// Audio player - manages audio output and playback
 use rodio::{OutputStream, Sink};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -59,10 +58,8 @@ impl AudioPlayer {
 
     pub fn get_position(&self) -> Duration {
         if self.pause_time.is_some() {
-            // Paused: return accumulated time up to pause
             self.accumulated_time
         } else if let Some(start) = self.start_time {
-            // Playing: return accumulated + current elapsed
             self.accumulated_time + start.elapsed()
         } else {
             Duration::ZERO
@@ -87,6 +84,7 @@ impl AudioPlayer {
         self.sink.as_ref().is_none_or(|s| s.empty())
     }
 
+    #[allow(dead_code)]
     pub fn is_paused(&self) -> bool {
         self.sink.as_ref().is_some_and(|s| s.is_paused())
     }
@@ -94,7 +92,6 @@ impl AudioPlayer {
     pub fn pause(&mut self) {
         if let Some(sink) = &self.sink {
             sink.pause();
-            // Save accumulated time when pausing
             if self.pause_time.is_none() {
                 if let Some(start) = self.start_time {
                     self.accumulated_time += start.elapsed();
@@ -107,7 +104,6 @@ impl AudioPlayer {
     pub fn resume(&mut self) {
         if let Some(sink) = &self.sink {
             sink.play();
-            // Resume timing when resuming playback
             if self.pause_time.is_some() {
                 self.start_time = Some(Instant::now());
                 self.pause_time = None;
@@ -115,6 +111,7 @@ impl AudioPlayer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn stop(&mut self) {
         if let Some(sink) = &self.sink {
             sink.stop();
