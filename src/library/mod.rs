@@ -7,11 +7,18 @@ use std::path::PathBuf;
 pub struct Song {
     pub path: PathBuf,
     pub name: String,
-    #[allow(dead_code)]
     pub extension: String,
 }
 
 impl Song {
+    /// Creates a Song from a file path by extracting name and extension.
+    ///
+    /// # Parameters
+    /// - `path`: Full path to the audio file
+    ///
+    /// # Returns
+    /// - `Some(Song)`: Successfully parsed filename and extension
+    /// - `None`: Path has no filename, invalid UTF-8, or no extension
     pub fn from_path(path: PathBuf) -> Option<Self> {
         let name = path
             .file_stem()

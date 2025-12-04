@@ -3,6 +3,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::error;
 
+/// Manages audio playback with play/pause/stop controls and timing tracking.
+///
+/// The sink is an audio queue that handles mixing, volume, and playback state.
+/// Timing is tracked separately to handle pause/resume correctly.
 pub struct AudioPlayer {
     _output_stream: Option<OutputStream>,
     sink: Option<Arc<Sink>>,

@@ -14,6 +14,19 @@ fn is_audio_file(path: &Path) -> bool {
     }
 }
 
+/// Recursively scans a directory for audio files and returns them sorted by name.
+///
+/// # Parameters
+/// - `path`: Directory path to scan
+///
+/// # Returns
+/// Vector of Song objects, sorted alphabetically (case-insensitive).
+/// Returns empty vector if directory doesn't exist or contains no audio files.
+///
+/// # Behavior
+/// - Follows symbolic links
+/// - Skips files with invalid UTF-8 filenames
+/// - Filters by extensions: mp3, wav, flac, ogg, m4a, aac
 pub fn scan_directory<P: AsRef<Path>>(path: P) -> Vec<Song> {
     let path = path.as_ref();
 

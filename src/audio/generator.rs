@@ -1,9 +1,16 @@
-// Audio generator - creates synthesized sounds
 use rodio::Decoder;
 use std::io::Cursor;
 use tracing::error;
 
-#[allow(dead_code)]
+/// Generates a sine wave beep tone as an audio decoder.
+///
+/// # Parameters
+/// - `frequency`: Tone frequency in Hz (e.g., 440.0 for A4)
+/// - `duration_ms`: Duration in milliseconds
+///
+/// # Returns
+/// - `Some(Decoder)`: Successfully generated audio
+/// - `None`: Failed to create WAV decoder (should rarely happen)
 pub fn create_beep(frequency: f32, duration_ms: u32) -> Option<Decoder<Cursor<Vec<u8>>>> {
     let sample_rate = 44100;
 
@@ -26,7 +33,6 @@ pub fn create_beep(frequency: f32, duration_ms: u32) -> Option<Decoder<Cursor<Ve
     }
 }
 
-#[allow(dead_code)]
 fn create_wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
     let num_samples = samples.len();
     let num_channels = 1u16;
