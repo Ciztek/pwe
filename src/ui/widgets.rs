@@ -236,7 +236,7 @@ pub fn render_library_section(
     ui.horizontal(|ui| {
         ui.colored_label(theme.primary(), "■");
         ui.heading(
-            egui::RichText::new("LIBRARY DATABASE")
+            egui::RichText::new("[Library folder doesn't exist]")
                 .color(theme.text_primary())
                 .strong(),
         );
@@ -306,31 +306,32 @@ pub fn render_library_section(
                             .color(theme.text_muted())
                             .italics(),
                     );
-                } else {
-                    for (idx, song) in filtered_songs.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{:03}", idx + 1))
-                                    .color(theme.text_muted())
-                                    .small(),
-                            );
+                    return;
+                }
 
-                            ui.add_space(5.0);
+                for (idx, song) in filtered_songs.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{:03}", idx + 1))
+                                .color(theme.text_muted())
+                                .small(),
+                        );
 
-                            let track_btn = egui::Button::new(
-                                egui::RichText::new(&song.name).color(theme.text_primary()),
-                            );
-                            if ui.add(track_btn).clicked() {
-                                action = LibraryAction::PlaySong(song.path.clone());
-                            }
+                        ui.add_space(5.0);
 
-                            ui.label(
-                                egui::RichText::new(format!("[{}]", song.extension.to_uppercase()))
-                                    .small()
-                                    .color(theme.text_muted()),
-                            );
-                        });
-                    }
+                        let track_btn = egui::Button::new(
+                            egui::RichText::new(&song.name).color(theme.text_primary()),
+                        );
+                        if ui.add(track_btn).clicked() {
+                            action = LibraryAction::PlaySong(song.path.clone());
+                        }
+
+                        ui.label(
+                            egui::RichText::new(format!("[{}]", song.extension.to_uppercase()))
+                                .small()
+                                .color(theme.text_muted()),
+                        );
+                    });
                 }
             });
     }
