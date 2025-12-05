@@ -236,8 +236,11 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.audio.is_playing && self.audio.audio_player.is_empty() {
-            self.audio.is_playing = false;
+        if self.audio.is_playing {
+            ctx.request_repaint();
+            if self.audio.audio_player.is_empty() {
+                self.audio.is_playing = false;
+            }
         }
 
         let current_position = self.audio.audio_player.get_position();
