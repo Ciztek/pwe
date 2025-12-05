@@ -1194,6 +1194,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "enum_cycling"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "767ea6558f16c0575f7381960bec2771b04be274532386843e5efbcec137592e"
+
+[[package]]
 name = "enumflags2"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2851,6 +2857,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_extras",
+ "enum_cycling",
  "pyo3",
  "rfd",
  "rodio",

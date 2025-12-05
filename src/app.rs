@@ -1,4 +1,5 @@
 use eframe::egui;
+use enum_cycling::EnumCycle;
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 
@@ -254,7 +255,7 @@ impl eframe::App for KaraokeApp {
         let (theme_switched, view_change) =
             panels::render_top_panel(ctx, self.ui.theme, self.ui.current_view);
         if theme_switched {
-            self.ui.theme = self.ui.theme.toggle();
+            self.ui.theme = self.ui.theme.up();
             info!("Theme switched to {:?}", self.ui.theme);
         }
         if let Some(new_view) = view_change {

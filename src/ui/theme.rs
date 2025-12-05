@@ -1,4 +1,5 @@
 use eframe::egui;
+use enum_cycling::EnumCycle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
@@ -6,14 +7,20 @@ pub enum Theme {
     Barbatos, // Light mode - "White Devil"
 }
 
-impl Theme {
-    pub fn toggle(self) -> Self {
+impl EnumCycle for Theme {
+    fn up(&self) -> Self {
         match self {
             Theme::Tekkadan => Theme::Barbatos,
             Theme::Barbatos => Theme::Tekkadan,
         }
     }
 
+    fn down(&self) -> Self {
+        self.up()
+    }
+}
+
+impl Theme {
     pub fn name(self) -> &'static str {
         match self {
             Theme::Tekkadan => "TEKKADAN",
