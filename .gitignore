@@ -44,6 +44,7 @@ config.json
 *.db
 *.sqlite
 logs/
+library/
 
 # Temporary files
 *.tmp

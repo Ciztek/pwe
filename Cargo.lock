@@ -2859,6 +2859,7 @@ dependencies = [
  "egui_extras",
  "enum_cycling",
  "pyo3",
+ "regex",
  "rfd",
  "rodio",
  "serde",
