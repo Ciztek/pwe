@@ -164,7 +164,7 @@ pub fn render_library_section(
     library: &[Song],
     _library_path: Option<&Path>,
     filter: &mut str,
-    path_input: &mut String,
+    add_song_path_input: &mut String,
     theme: Theme,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
@@ -252,46 +252,62 @@ pub fn render_library_section(
     ui.horizontal(|ui| {
         ui.add_space(4.0);
         ui.label(
-            egui::RichText::new("LIBRARY PATH:")
-                .color(theme.text_muted())
-                .size(11.0),
+            egui::RichText::new("PERSISTENT LIBRARY")
+                .color(theme.primary())
+                .size(12.0)
+                .strong(),
         );
 
-        let available = ui.available_width() - 150.0;
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(4.0);
+
+            if ui
+                .button(
+                    egui::RichText::new("[ + Add Song ]")
+                        .color(theme.accent())
+                        .size(11.0),
+                )
+                .clicked()
+            {
+                action = LibraryAction::AddSong;
+            }
+        });
+    });
+
+    ui.add_space(8.0);
+
+    // Add song path input
+    ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Or add by path:")
+                .color(theme.text_muted())
+                .size(10.0),
+        );
+
         let path_edit = ui.add(
-            egui::TextEdit::singleline(path_input)
-                .desired_width(available.max(200.0))
-                .hint_text("/path/to/music/folder")
+            egui::TextEdit::singleline(add_song_path_input)
+                .desired_width(ui.available_width() - 100.0)
+                .hint_text("/path/to/song.mp3")
                 .font(egui::TextStyle::Monospace),
         );
 
         if ui
             .button(
-                egui::RichText::new("[ LOAD ]")
+                egui::RichText::new("[ Add ]")
                     .color(theme.accent())
-                    .size(11.0),
+                    .size(10.0),
             )
             .clicked()
             || (path_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
         {
-            action = LibraryAction::ScanFromInput;
-        }
-
-        ui.add_space(8.0);
-
-        let scan_btn = egui::Button::new(
-            egui::RichText::new("[ SCAN ]")
-                .color(theme.primary())
-                .size(11.0),
-        );
-        if ui.add(scan_btn).clicked() {
-            action = LibraryAction::ScanFolder;
+            action = LibraryAction::AddSongFromPath;
         }
 
         ui.add_space(4.0);
     });
 
-    ui.add_space(16.0);
+    ui.add_space(8.0);
 
     if !library.is_empty() {
         let filtered_songs: Vec<&Song> = if filter.is_empty() {
@@ -352,6 +368,19 @@ pub fn render_library_section(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    if ui
+                                        .button(
+                                            egui::RichText::new("[×]")
+                                                .size(14.0)
+                                                .color(theme.error()),
+                                        )
+                                        .clicked()
+                                    {
+                                        action = LibraryAction::RemoveSong(song.path.clone());
+                                    }
+
+                                    ui.add_space(8.0);
+
                                     ui.label(
                                         egui::RichText::new("[Mic]")
                                             .size(11.0)
@@ -394,7 +423,8 @@ pub enum AudioAction {
 #[derive(Debug, Clone)]
 pub enum LibraryAction {
     None,
-    ScanFolder,
-    ScanFromInput,
     PlaySong(std::path::PathBuf),
+    AddSong,
+    AddSongFromPath,
+    RemoveSong(std::path::PathBuf),
 }

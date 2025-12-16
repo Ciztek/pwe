@@ -84,6 +84,13 @@ impl Theme {
         }
     }
 
+    pub fn error(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(239, 68, 68), // Red
+            Theme::Barbatos => egui::Color32::from_rgb(220, 38, 38), // Red
+        }
+    }
+
     pub fn apply(&self, ctx: &egui::Context) {
         let mut visuals = match self {
             Theme::Tekkadan => egui::Visuals::dark(),
