@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tracing::{error, info, warn};
 
 use crate::audio::{generator, loader, player::AudioPlayer};
-use crate::library::{scanner, Song};
+use crate::library::{scanner, storage, Song};
 use crate::ui::{panels, settings::SettingsState, theme::Theme, widgets};
 
 pub struct Audio {
@@ -24,7 +24,9 @@ pub struct Library {
     library: Vec<Song>,
     library_path: Option<PathBuf>,
     library_filter: String,
-    library_path_input: String,
+    metadata: storage::LibraryMetadata,
+    library_dir: Option<PathBuf>,
+    add_song_path_input: String,
 }
 
 pub struct KaraokeApp {
@@ -143,40 +145,116 @@ impl UI {
 
 impl Library {
     pub fn new() -> Self {
-        Self {
+        // Load library metadata and scan the library directory
+        let metadata = storage::load_library_metadata();
+        let library_dir = storage::get_library_directory().ok();
+
+        let mut lib = Self {
             library: Vec::new(),
             library_path: None,
             library_filter: String::new(),
-            library_path_input: String::new(),
+            metadata,
+            library_dir: library_dir.clone(),
+            add_song_path_input: String::new(),
+        };
+
+        // Scan the library directory on startup
+        if let Some(dir) = library_dir {
+            lib.load_library_from_storage(&dir);
+        }
+
+        lib
+    }
+
+    /// Loads songs from the persistent library storage
+    fn load_library_from_storage(&mut self, library_dir: &PathBuf) {
+        info!("Loading library from storage: {}", library_dir.display());
+        self.library = scanner::scan_directory(library_dir);
+        self.library_path = Some(library_dir.clone());
+        info!("Library loaded with {} songs", self.library.len());
+    }
+
+    /// Adds a file to the persistent library storage
+    fn add_to_library(&mut self, source_path: PathBuf) {
+        match storage::copy_to_library(&source_path) {
+            Ok(stored_filename) => {
+                let title = source_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+
+                let entry = storage::LibraryEntry {
+                    original_path: source_path.clone(),
+                    stored_filename: stored_filename.clone(),
+                    title,
+                    added_date: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                };
+
+                self.metadata.add_entry(entry);
+
+                if let Err(e) = storage::save_library_metadata(&self.metadata) {
+                    error!("Failed to save library metadata: {}", e);
+                }
+
+                // Rescan the library
+                if let Some(dir) = self.library_dir.clone() {
+                    self.load_library_from_storage(&dir);
+                }
+
+                info!("Added {} to library", source_path.display());
+            }
+            Err(e) => {
+                error!("Failed to add file to library: {}", e);
+            }
         }
     }
-    fn scan_library(&mut self) {
-        match rfd::FileDialog::new()
-            .set_title("Select Library Folder")
-            .pick_folder()
+
+    /// Removes a song from the persistent library storage
+    fn remove_from_library(&mut self, song: &Song) {
+        // Find the metadata entry for this song
+        let stored_filename = song.path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        if let Some(entry) = self.metadata.remove_entry(stored_filename) {
+            if let Err(e) = storage::remove_from_library(&entry.stored_filename) {
+                error!("Failed to remove file from library: {}", e);
+            }
+
+            if let Err(e) = storage::save_library_metadata(&self.metadata) {
+                error!("Failed to save library metadata: {}", e);
+            }
+
+            // Rescan the library
+            if let Some(dir) = self.library_dir.clone() {
+                self.load_library_from_storage(&dir);
+            }
+
+            info!("Removed {} from library", entry.title);
+        }
+    }
+
+    /// Opens a file dialog to add a song to the library
+    fn add_song_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Add Song to Library")
+            .add_filter("Audio Files", &["mp3", "wav", "flac", "ogg", "m4a", "aac"])
+            .pick_file()
         {
-            Some(path) => {
-                info!("Scanning library: {}", path.display());
-                self.library = scanner::scan_directory(&path);
-                self.library_path = Some(path.clone());
-                self.library_path_input = path.display().to_string();
-                info!("Library loaded with {} songs", self.library.len());
-            },
-            None => {
-                warn!("File dialog unavailable - use manual path input");
-            },
+            self.add_to_library(path);
         }
     }
-    fn scan_library_from_input(&mut self) {
-        if !self.library_path_input.is_empty() {
-            let path = PathBuf::from(&self.library_path_input);
-            if path.exists() && path.is_dir() {
-                info!("Scanning library: {}", path.display());
-                self.library = scanner::scan_directory(&path);
-                self.library_path = Some(path);
-                info!("Library loaded with {} songs", self.library.len());
+
+    /// Adds a song from a path string input
+    fn add_song_from_path(&mut self) {
+        if !self.add_song_path_input.is_empty() {
+            let path = PathBuf::from(&self.add_song_path_input);
+            if path.exists() && path.is_file() {
+                self.add_to_library(path);
+                self.add_song_path_input.clear();
             } else {
-                error!("Invalid path: {}", self.library_path_input);
+                error!("Invalid file path: {}", self.add_song_path_input);
             }
         }
     }
@@ -374,14 +452,20 @@ impl KaraokeApp {
                     &self.library.library,
                     self.library.library_path.as_deref(),
                     &mut self.library.library_filter,
-                    &mut self.library.library_path_input,
+                    &mut self.library.add_song_path_input,
                     self.ui.theme,
                 );
 
                 match library_action {
-                    widgets::LibraryAction::ScanFolder => self.library.scan_library(),
-                    widgets::LibraryAction::ScanFromInput => self.library.scan_library_from_input(),
                     widgets::LibraryAction::PlaySong(path) => self.audio.load_and_play_file(path),
+                    widgets::LibraryAction::AddSong => self.library.add_song_dialog(),
+                    widgets::LibraryAction::AddSongFromPath => self.library.add_song_from_path(),
+                    widgets::LibraryAction::RemoveSong(path) => {
+                        // Find the song by path and remove it
+                        if let Some(song) = self.library.library.iter().find(|s| s.path == path).cloned() {
+                            self.library.remove_from_library(&song);
+                        }
+                    }
                     widgets::LibraryAction::None => {},
                 }
             });
