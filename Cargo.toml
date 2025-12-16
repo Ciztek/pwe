@@ -4,6 +4,18 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Your Team"]
 description = "Desktop karaoke application with vocal separation using Spleeter"
+license = "BSD-3-Clause"
+repository = "https://github.com/Ciztek/pwe"
+
+[package.metadata.bundle]
+name = "PWE Karaoke"
+identifier = "com.ciztek.pwe-karaoke"
+icon = ["assets/icon.png"]
+version = "0.1.0"
+copyright = "Copyright (c) 2025 Ciztek"
+category = "Music"
+short_description = "Desktop karaoke application"
+long_description = "Desktop karaoke application with audio playback, library management, and vocal separation capabilities."
 
 [dependencies]
 # GUI Framework - Using eframe (egui) for desktop UI
