@@ -96,6 +96,25 @@ FFmpeg must be installed and available in your system PATH for Spleeter to work 
 
 ## 🚀 Getting Started
 
+### Installation (End Users)
+
+Download the latest installer for your platform from the [Releases](https://github.com/Ciztek/pwe/releases) page:
+
+- **Windows**: Download and run the `.msi` installer
+- **macOS**: Download the `.dmg`, open it, and drag to Applications
+- **Linux**:
+  - Ubuntu/Debian: Download and install the `.deb` package
+  - Universal: Download the `.AppImage`, make it executable, and run
+
+The installer will:
+
+- Create application shortcuts
+- Set up file associations for audio files
+- Install required dependencies
+- Create a local library directory
+
+### Development Setup
+
 ### 1. Clone and Setup
 
 ```bash
@@ -165,7 +184,27 @@ cp target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe /mnt/c/Users/YourUsernam
 
 **Note:** Windows builds exclude PyO3/Spleeter by default (`--no-default-features`) to avoid cross-compilation complexity.
 
-#### Build with Spleeter Support (Linux only)
+### 3. Building Installers (For Distribution)
+
+Build professional installers for all platforms:
+
+```bash
+# Install dependencies first
+make installer-deps
+
+# Build installers
+make installer
+```
+
+This creates installers in `target/release/bundle/`:
+
+- **Linux**: `.deb` package and `.AppImage`
+- **macOS**: `.dmg` disk image and `.app` bundle
+- **Windows**: `.msi` installer
+
+See [installer/README.md](installer/README.md) for detailed instructions.
+
+### 4. Build with Spleeter Support (Linux only)
 
 ```bash
 # Make sure Python virtual environment is activated
@@ -178,7 +217,7 @@ cargo build --release --features spleeter
 ./target/release/pwe-karaoke
 ```
 
-### 3. Build Summary
+### 5. Build Summary
 
 | Platform | Command | Output Location | Features |
 |----------|---------|-----------------|----------|
@@ -186,8 +225,9 @@ cargo build --release --features spleeter
 | Linux Release | `cargo build --release` | `target/release/pwe-karaoke` | Optimized, ~12MB |
 | Linux + Spleeter | `cargo build --release --features spleeter` | `target/release/pwe-karaoke` | With Python integration |
 | Windows .exe | `cargo build --release --target x86_64-pc-windows-gnu --no-default-features` | `target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe` | Cross-compiled, no Python |
+| Installers | `make installer` | `target/release/bundle/` | Distribution packages |
 
-### 4. Run the Application
+### 6. Run the Application
 
 ```bash
 # Development mode (with hot-reload)
