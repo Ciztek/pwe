@@ -1,5 +1,6 @@
 // Library module - song library management
 pub mod scanner;
+pub mod storage;
 
 use std::path::PathBuf;
 
