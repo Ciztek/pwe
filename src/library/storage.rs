@@ -42,16 +42,16 @@ impl LibraryMetadata {
     }
 
     pub fn load_from_file(path: &Path) -> Result<Self> {
-        let contents = std::fs::read_to_string(path)
-            .context("Failed to read library metadata file")?;
+        let contents =
+            std::fs::read_to_string(path).context("Failed to read library metadata file")?;
         let metadata: LibraryMetadata =
             serde_json::from_str(&contents).context("Failed to parse library metadata")?;
         Ok(metadata)
     }
 
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize library metadata")?;
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize library metadata")?;
         std::fs::write(path, json).context("Failed to write library metadata file")?;
         Ok(())
     }
@@ -84,8 +84,7 @@ pub fn get_library_directory() -> Result<PathBuf> {
         };
 
         let library_dir = app_data.join("Library");
-        std::fs::create_dir_all(&library_dir)
-            .context("Failed to create library directory")?;
+        std::fs::create_dir_all(&library_dir).context("Failed to create library directory")?;
 
         info!("Library directory: {}", library_dir.display());
         Ok(library_dir)
@@ -124,20 +123,23 @@ pub fn copy_to_library(source: &Path) -> Result<String> {
         .context("Failed to get timestamp")?
         .as_secs();
 
-    let extension = source
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let extension = source.extension().and_then(|s| s.to_str()).unwrap_or("");
 
-    let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let stem = source
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
 
     let stored_filename = format!("{}_{}.{}", stem, timestamp, extension);
     let dest_path = library_dir.join(&stored_filename);
 
-    info!("Copying {} to library as {}", source.display(), stored_filename);
+    info!(
+        "Copying {} to library as {}",
+        source.display(),
+        stored_filename
+    );
 
-    std::fs::copy(source, &dest_path)
-        .context("Failed to copy file to library")?;
+    std::fs::copy(source, &dest_path).context("Failed to copy file to library")?;
 
     Ok(stored_filename)
 }
@@ -149,8 +151,7 @@ pub fn remove_from_library(stored_filename: &str) -> Result<()> {
 
     if file_path.exists() {
         info!("Removing {} from library", stored_filename);
-        std::fs::remove_file(&file_path)
-            .context("Failed to remove file from library")?;
+        std::fs::remove_file(&file_path).context("Failed to remove file from library")?;
     }
 
     Ok(())
@@ -163,23 +164,26 @@ pub fn load_library_metadata() -> LibraryMetadata {
             if metadata_path.exists() {
                 match LibraryMetadata::load_from_file(&metadata_path) {
                     Ok(metadata) => {
-                        info!("Loaded library metadata with {} entries", metadata.entries.len());
+                        info!(
+                            "Loaded library metadata with {} entries",
+                            metadata.entries.len()
+                        );
                         metadata
-                    }
+                    },
                     Err(e) => {
                         error!("Failed to load library metadata: {}", e);
                         LibraryMetadata::new()
-                    }
+                    },
                 }
             } else {
                 info!("No existing library metadata, creating new");
                 LibraryMetadata::new()
             }
-        }
+        },
         Err(e) => {
             error!("Failed to get metadata file path: {}", e);
             LibraryMetadata::new()
-        }
+        },
     }
 }
 
@@ -187,6 +191,9 @@ pub fn load_library_metadata() -> LibraryMetadata {
 pub fn save_library_metadata(metadata: &LibraryMetadata) -> Result<()> {
     let metadata_path = get_metadata_file()?;
     metadata.save_to_file(&metadata_path)?;
-    info!("Saved library metadata with {} entries", metadata.entries.len());
+    info!(
+        "Saved library metadata with {} entries",
+        metadata.entries.len()
+    );
     Ok(())
 }

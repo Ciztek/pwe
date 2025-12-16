@@ -107,6 +107,7 @@ Download the latest installer for your platform from the [Releases](https://gith
   - Universal: Download the `.AppImage`, make it executable, and run
 
 The installer will:
+
 - Create application shortcuts
 - Set up file associations for audio files
 - Install required dependencies
@@ -196,6 +197,7 @@ make installer
 ```
 
 This creates installers in `target/release/bundle/`:
+
 - **Linux**: `.deb` package and `.AppImage`
 - **macOS**: `.dmg` disk image and `.app` bundle
 - **Windows**: `.msi` installer
