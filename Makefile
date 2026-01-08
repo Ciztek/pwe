@@ -1,7 +1,7 @@
 # PWE Karaoke - Development Makefile
 # Convenient commands for common development tasks
 
-.PHONY: help build run release clean fmt lint check test setup-python install-python all
+.PHONY: help build run release clean fmt lint check test setup-python install-python all installer installer-deps
 
 # Default target
 help:
@@ -12,6 +12,8 @@ help:
 	@echo "  make build          - Build the project in debug mode"
 	@echo "  make run            - Build and run the project"
 	@echo "  make release        - Build optimized release version"
+	@echo "  make installer      - Build installers for distribution"
+	@echo "  make installer-deps - Install dependencies for building installers"
 	@echo "  make clean          - Clean build artifacts"
 	@echo "  make fmt            - Format code with rustfmt"
 	@echo "  make lint           - Run clippy lints"
@@ -101,3 +103,27 @@ all: fmt lint build
 # Pre-commit checks (useful for git hooks)
 pre-commit: fmt lint test
 	@echo "Pre-commit checks passed!"
+
+# Install dependencies for building installers
+installer-deps:
+	@echo "Checking for OpenSSL development libraries..."
+	@if ! pkg-config --exists openssl; then \
+		echo "Error: OpenSSL development libraries not found."; \
+		echo ""; \
+		echo "Please install them:"; \
+		echo "  Ubuntu/Debian: sudo apt install -y libssl-dev pkg-config"; \
+		echo "  Fedora/RHEL:   sudo dnf install -y openssl-devel pkg-config"; \
+		echo "  macOS:         brew install openssl pkg-config"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@echo "OpenSSL found. Installing cargo-bundle..."
+	cargo install cargo-bundle
+	@echo "cargo-bundle installed! You may need to install additional system dependencies."
+	@echo "See installer/README.md for platform-specific requirements."
+
+# Build installers for distribution
+installer: release
+	@echo "Building installers..."
+	@bash -c './installer/build-installers.sh'
+	@echo "Installers created in target/release/bundle/"

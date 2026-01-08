@@ -1,79 +1,113 @@
-// Theme system for color palettes
 use eframe::egui;
+use enum_cycling::EnumCycle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Theme {
-    IronFlower, // Dark mode
-    WhiteFrame, // Light mode
+    Tekkadan, // Dark mode - "Iron Flower"
+    Barbatos, // Light mode - "White Devil"
+}
+
+impl EnumCycle for Theme {
+    fn up(&self) -> Self {
+        match self {
+            Theme::Tekkadan => Theme::Barbatos,
+            Theme::Barbatos => Theme::Tekkadan,
+        }
+    }
+
+    fn down(&self) -> Self {
+        self.up()
+    }
 }
 
 impl Theme {
-    pub fn toggle(self) -> Self {
-        match self {
-            Theme::IronFlower => Theme::WhiteFrame,
-            Theme::WhiteFrame => Theme::IronFlower,
-        }
-    }
-
     pub fn name(self) -> &'static str {
         match self {
-            Theme::IronFlower => "Iron Flower",
-            Theme::WhiteFrame => "White Frame",
+            Theme::Tekkadan => "TEKKADAN",
+            Theme::Barbatos => "BARBATOS",
         }
     }
 
-    // Primary Action colors
+    pub fn background(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(17, 19, 17), // Void Green
+            Theme::Barbatos => egui::Color32::from_rgb(240, 242, 245), // Hangar Wall
+        }
+    }
+
+    pub fn card_surface(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(34, 41, 36), // Uniform Green
+            Theme::Barbatos => egui::Color32::WHITE,                // Ceramic Armor
+        }
+    }
+
     pub fn primary(self) -> egui::Color32 {
         match self {
-            Theme::IronFlower => egui::Color32::from_rgb(196, 30, 58), // Tekkadan Red
-            Theme::WhiteFrame => egui::Color32::from_rgb(29, 78, 216), // Reactor Blue
+            Theme::Tekkadan => egui::Color32::from_rgb(168, 32, 40), // Flower Red
+            Theme::Barbatos => egui::Color32::from_rgb(24, 69, 139), // Cobalt Blue
         }
     }
 
-    // Active/Select colors
-    pub fn active(self) -> egui::Color32 {
+    pub fn secondary(self) -> egui::Color32 {
         match self {
-            Theme::IronFlower => egui::Color32::from_rgb(242, 201, 76), // Golden
-            Theme::WhiteFrame => egui::Color32::from_rgb(245, 158, 11), // Orange
+            Theme::Tekkadan => egui::Color32::from_rgb(58, 64, 60), // Gunmetal
+            Theme::Barbatos => egui::Color32::from_rgb(229, 231, 235), // Inner Frame
         }
     }
 
-    // Text Primary colors
+    pub fn accent(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust
+            Theme::Barbatos => egui::Color32::from_rgb(235, 201, 52), // V-Fin Yellow
+        }
+    }
+
+    pub fn alert(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust (same as accent for dark)
+            Theme::Barbatos => egui::Color32::from_rgb(201, 26, 37),  // Chin Red
+        }
+    }
+
     pub fn text_primary(self) -> egui::Color32 {
         match self {
-            Theme::IronFlower => egui::Color32::WHITE,
-            Theme::WhiteFrame => egui::Color32::from_rgb(17, 24, 39), // High contrast black
+            Theme::Tekkadan => egui::Color32::from_rgb(232, 230, 227), // Bone White
+            Theme::Barbatos => egui::Color32::from_rgb(31, 41, 55),    // Oil Black
         }
     }
 
-    // Text Muted colors
     pub fn text_muted(self) -> egui::Color32 {
         match self {
-            Theme::IronFlower => egui::Color32::from_rgb(139, 148, 158), // Gray
-            Theme::WhiteFrame => egui::Color32::from_rgb(107, 114, 128), // Lighter gray
+            Theme::Tekkadan => egui::Color32::from_rgb(149, 155, 150), // Faded Canvas
+            Theme::Barbatos => egui::Color32::from_rgb(107, 114, 128), // Grey
         }
     }
 
-    // Apply theme to egui context
-    pub fn apply(self, ctx: &egui::Context) {
+    pub fn error(self) -> egui::Color32 {
+        match self {
+            Theme::Tekkadan => egui::Color32::from_rgb(239, 68, 68), // Red
+            Theme::Barbatos => egui::Color32::from_rgb(220, 38, 38), // Red
+        }
+    }
+
+    pub fn apply(&self, ctx: &egui::Context) {
         let mut visuals = match self {
-            Theme::IronFlower => egui::Visuals::dark(),
-            Theme::WhiteFrame => egui::Visuals::light(),
+            Theme::Tekkadan => egui::Visuals::dark(),
+            Theme::Barbatos => egui::Visuals::light(),
         };
 
         // Set background colors
-        match self {
-            Theme::IronFlower => {
-                visuals.window_fill = egui::Color32::from_rgb(15, 17, 21); // App Background
-                visuals.panel_fill = egui::Color32::from_rgb(15, 17, 21); // Panel Background
-                visuals.faint_bg_color = egui::Color32::from_rgb(28, 33, 40); // Card Surface
-            },
-            Theme::WhiteFrame => {
-                visuals.window_fill = egui::Color32::from_rgb(243, 244, 246); // App Background
-                visuals.panel_fill = egui::Color32::from_rgb(243, 244, 246); // Panel Background
-                visuals.faint_bg_color = egui::Color32::WHITE; // Card Surface
-            },
-        }
+        visuals.window_fill = self.background();
+        visuals.panel_fill = self.background();
+        visuals.faint_bg_color = self.card_surface();
+        visuals.extreme_bg_color = self.secondary();
+
+        // Update widget colors
+        visuals.widgets.noninteractive.bg_fill = self.card_surface();
+        visuals.widgets.inactive.bg_fill = self.secondary();
+        visuals.widgets.hovered.bg_fill = self.accent();
+        visuals.widgets.active.bg_fill = self.primary();
 
         ctx.set_visuals(visuals);
     }

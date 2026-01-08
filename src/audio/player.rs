@@ -88,6 +88,7 @@ impl AudioPlayer {
         self.sink.as_ref().is_none_or(|s| s.empty())
     }
 
+    #[allow(dead_code)]
     pub fn is_paused(&self) -> bool {
         self.sink.as_ref().is_some_and(|s| s.is_paused())
     }
@@ -114,6 +115,7 @@ impl AudioPlayer {
         }
     }
 
+    #[allow(dead_code)]
     pub fn stop(&mut self) {
         if let Some(sink) = &self.sink {
             sink.stop();
