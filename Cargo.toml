@@ -51,11 +51,10 @@ rfd = "0.15"
 # Path handling
 walkdir = "2.5"
 
-# Cross-platform paths
+# utilities
 dirs = "5.0"
-
-# Enum utilities
 enum_cycling = "0.1"
+regex = "1"
 
 [features]
 default = []

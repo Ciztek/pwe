@@ -1,6 +1,7 @@
 mod app;
 mod audio;
 mod library;
+mod lrc;
 mod ui;
 
 use app::KaraokeApp;
