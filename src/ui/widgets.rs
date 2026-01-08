@@ -271,6 +271,20 @@ pub fn render_library_section(
             {
                 action = LibraryAction::AddSong;
             }
+
+            ui.add_space(8.0);
+
+            if ui
+                .button(
+                    egui::RichText::new("[ ↻ Refresh ]")
+                        .color(theme.primary())
+                        .size(11.0),
+                )
+                .on_hover_text("Sync library with file system")
+                .clicked()
+            {
+                action = LibraryAction::RefreshLibrary;
+            }
         });
     });
 
@@ -381,19 +395,25 @@ pub fn render_library_section(
 
                                     ui.add_space(8.0);
 
-                                    ui.label(
-                                        egui::RichText::new("[Mic]")
-                                            .size(11.0)
-                                            .color(theme.secondary()),
-                                    );
+                                    // Show lyrics indicator
+                                    let lyrics_icon = if song.has_lyrics { "🎤" } else { "♪" };
+                                    let lyrics_color = if song.has_lyrics {
+                                        theme.accent()
+                                    } else {
+                                        theme.text_muted()
+                                    };
 
-                                    ui.add_space(12.0);
-
                                     ui.label(
-                                        egui::RichText::new("3:42")
-                                            .size(12.0)
-                                            .color(theme.text_muted())
-                                            .monospace(),
+                                        egui::RichText::new(lyrics_icon)
+                                            .size(13.0)
+                                            .color(lyrics_color),
+                                    )
+                                    .on_hover_text(
+                                        if song.has_lyrics {
+                                            "Has lyrics file"
+                                        } else {
+                                            "No lyrics file"
+                                        },
                                     );
                                 },
                             );
@@ -427,4 +447,5 @@ pub enum LibraryAction {
     AddSong,
     AddSongFromPath,
     RemoveSong(std::path::PathBuf),
+    RefreshLibrary,
 }
