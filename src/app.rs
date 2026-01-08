@@ -111,6 +111,9 @@ impl Audio {
     fn load_and_play_file(&mut self, path: PathBuf) {
         self.error_message = None;
 
+        // Clear old audio state
+        self.audio_player.clear();
+
         self.song_duration = loader::get_audio_duration(&path);
 
         match loader::load_audio_file(&path) {
@@ -160,8 +163,18 @@ impl UI {
 impl Library {
     pub fn new() -> Self {
         // Load library metadata and scan the library directory
-        let metadata = storage::load_library_metadata();
+        let mut metadata = storage::load_library_metadata();
         let library_dir = storage::get_library_directory().ok();
+
+        // Sync library with actual files on disk
+        if let Err(e) = storage::sync_library(&mut metadata) {
+            error!("Failed to sync library: {}", e);
+        } else {
+            // Save the synced metadata
+            if let Err(e) = storage::save_library_metadata(&metadata) {
+                error!("Failed to save synced library metadata: {}", e);
+            }
+        }
 
         let mut lib = Self {
             library: Vec::new(),
@@ -186,6 +199,34 @@ impl Library {
         self.library = scanner::scan_directory(library_dir);
         self.library_path = Some(library_dir.clone());
         info!("Library loaded with {} songs", self.library.len());
+
+        // Log lyrics status
+        let with_lyrics = self.library.iter().filter(|s| s.has_lyrics).count();
+        if with_lyrics > 0 {
+            info!("{} songs have lyrics files", with_lyrics);
+        }
+    }
+
+    /// Refreshes the library by syncing metadata and rescanning
+    fn refresh_library(&mut self) {
+        info!("Refreshing library...");
+
+        // Sync metadata with file system
+        if let Err(e) = storage::sync_library(&mut self.metadata) {
+            error!("Failed to sync library: {}", e);
+        } else {
+            // Save the synced metadata
+            if let Err(e) = storage::save_library_metadata(&self.metadata) {
+                error!("Failed to save synced library metadata: {}", e);
+            }
+        }
+
+        // Rescan the library directory
+        if let Some(dir) = self.library_dir.clone() {
+            self.load_library_from_storage(&dir);
+        }
+
+        info!("Library refresh complete");
     }
 
     /// Adds a file to the persistent library storage
@@ -290,20 +331,30 @@ impl Karaoke {
         // Try to find LRC file with same name as audio file
         let lrc_path = audio_path.with_extension("lrc");
 
+        info!("Looking for LRC file at: {}", lrc_path.display());
+
         if !lrc_path.exists() {
             info!("No LRC file found at: {}", lrc_path.display());
-            self.lrc_error = Some("No lyrics file found".to_string());
+            self.lrc_error = Some(format!("No lyrics file found at:\n{}", lrc_path.display()));
             return;
         }
 
+        info!("Found LRC file, parsing...");
         match lrc::parse_lrc_file(&lrc_path) {
             Ok(events) => {
-                info!("Loaded LRC file: {}", lrc_path.display());
+                info!("Successfully parsed LRC file with {} events", events.len());
                 self.parse_lrc_events(events);
+
+                if self.lyrics.is_empty() {
+                    warn!("LRC file contained no lyric lines");
+                    self.lrc_error = Some("LRC file contains no lyrics".to_string());
+                } else {
+                    info!("Loaded {} lyric lines", self.lyrics.len());
+                }
             },
             Err(e) => {
                 error!("Failed to parse LRC file: {}", e);
-                self.lrc_error = Some(format!("Failed to parse lyrics: {}", e));
+                self.lrc_error = Some(format!("Failed to parse lyrics:\n{}", e));
             },
         }
     }
@@ -337,6 +388,20 @@ impl Karaoke {
         self.lyrics.sort_by_key(|line| line.timestamp_ms);
 
         info!("Loaded {} lyric lines", self.lyrics.len());
+
+        // Log first few timestamps for debugging
+        if self.lyrics.len() > 0 {
+            let preview_count = self.lyrics.len().min(5);
+            info!("First {} lyrics timestamps:", preview_count);
+            for (i, line) in self.lyrics.iter().take(preview_count).enumerate() {
+                info!(
+                    "  Line {}: {}ms - \"{}\"",
+                    i + 1,
+                    line.timestamp_ms,
+                    line.text.chars().take(30).collect::<String>()
+                );
+            }
+        }
     }
 
     /// Updates the current line based on playback position
@@ -352,6 +417,20 @@ impl Karaoke {
                 active_index = Some(i);
             } else {
                 break;
+            }
+        }
+
+        // Only log when index changes
+        if active_index != self.current_line_index {
+            if let Some(idx) = active_index {
+                if idx < self.lyrics.len() {
+                    info!(
+                        "Lyrics updated: line {} at {}ms - \"{}\"",
+                        idx + 1,
+                        current_position_ms,
+                        self.lyrics[idx].text.chars().take(50).collect::<String>()
+                    );
+                }
             }
         }
 
@@ -432,6 +511,20 @@ impl eframe::App for KaraokeApp {
 
         // Update karaoke lyrics sync
         let current_position_ms = current_position.as_millis() as u64;
+
+        // Log position every 2 seconds for debugging
+        static mut LAST_LOG_TIME: u64 = 0;
+        unsafe {
+            if current_position_ms > 0 && current_position_ms / 2000 > LAST_LOG_TIME / 2000 {
+                info!(
+                    "Playback position: {}ms ({}s)",
+                    current_position_ms,
+                    current_position_ms / 1000
+                );
+                LAST_LOG_TIME = current_position_ms;
+            }
+        }
+
         self.karaoke.update(current_position_ms);
 
         let current_song_name = self
@@ -478,6 +571,7 @@ impl eframe::App for KaraokeApp {
                 self.audio.audio_player.clear();
                 self.audio.is_playing = false;
                 self.audio.current_file = None;
+                self.karaoke.clear();
                 info!("Playback stopped");
             },
             panels::PlaybackAction::SkipForward => {
@@ -568,7 +662,11 @@ impl KaraokeApp {
 
                 match library_action {
                     widgets::LibraryAction::PlaySong(path) => {
+                        // Clear old lyrics first
+                        self.karaoke.clear();
+                        // Load and play the audio file
                         self.audio.load_and_play_file(path.clone());
+                        // Try to load lyrics for the new song
                         self.karaoke.load_lyrics(&path);
                     },
                     widgets::LibraryAction::AddSong => self.library.add_song_dialog(),
@@ -585,6 +683,9 @@ impl KaraokeApp {
                             self.library.remove_from_library(&song);
                         }
                     },
+                    widgets::LibraryAction::RefreshLibrary => {
+                        self.library.refresh_library();
+                    },
                     widgets::LibraryAction::None => {},
                 }
             });
@@ -593,6 +694,29 @@ impl KaraokeApp {
     }
 
     fn render_karaoke_view(&mut self, ui: &mut egui::Ui) {
+        // Show current song info at the top
+        if let Some(song_name) = self
+            .audio
+            .current_file
+            .as_ref()
+            .and_then(|path| path.file_stem().and_then(|s| s.to_str()))
+        {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Now Playing:")
+                        .color(self.ui.theme.text_muted())
+                        .size(12.0),
+                );
+                ui.label(
+                    egui::RichText::new(song_name)
+                        .color(self.ui.theme.text_primary())
+                        .size(14.0)
+                        .strong(),
+                );
+            });
+            ui.add_space(8.0);
+        }
+
         if self.karaoke.lyrics.is_empty() {
             // No lyrics loaded - show placeholder
             ui.centered_and_justified(|ui| {
@@ -601,14 +725,25 @@ impl KaraokeApp {
 
                     if let Some(error) = &self.karaoke.lrc_error {
                         ui.label(
-                            egui::RichText::new(error)
-                                .size(18.0)
-                                .color(self.ui.theme.text_muted())
-                                .italics(),
+                            egui::RichText::new("⚠️")
+                                .size(48.0)
+                                .color(self.ui.theme.text_muted()),
                         );
-                    } else {
+                        ui.add_space(16.0);
                         ui.label(
-                            egui::RichText::new("No lyrics loaded")
+                            egui::RichText::new(error)
+                                .size(16.0)
+                                .color(self.ui.theme.text_muted()),
+                        );
+                    } else if self.audio.current_file.is_none() {
+                        ui.label(
+                            egui::RichText::new("🎤")
+                                .size(64.0)
+                                .color(self.ui.theme.text_muted()),
+                        );
+                        ui.add_space(16.0);
+                        ui.label(
+                            egui::RichText::new("No song playing")
                                 .size(24.0)
                                 .color(self.ui.theme.text_muted()),
                         );
@@ -616,58 +751,89 @@ impl KaraokeApp {
                         ui.add_space(16.0);
 
                         ui.label(
-                            egui::RichText::new("Play a song with a .lrc file to see lyrics")
+                            egui::RichText::new("Go to Library and play a song with a .lrc file")
                                 .size(14.0)
                                 .color(self.ui.theme.text_muted())
                                 .italics(),
                         );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("No lyrics available")
+                                .size(24.0)
+                                .color(self.ui.theme.text_muted()),
+                        );
+
+                        ui.add_space(16.0);
+
+                        if let Some(audio_path) = &self.audio.current_file {
+                            let lrc_path = audio_path.with_extension("lrc");
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "Create a .lrc file at:\n{}",
+                                    lrc_path.display()
+                                ))
+                                .size(12.0)
+                                .color(self.ui.theme.text_muted())
+                                .italics(),
+                            );
+                        }
                     }
                 });
             });
             return;
         }
 
-        // Display lyrics in karaoke style
-        egui::ScrollArea::vertical()
+        // Display lyrics in karaoke style with auto-scroll
+        let mut scroll_area = egui::ScrollArea::vertical()
             .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(50.0);
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
 
-                let current_index = self.karaoke.current_line_index;
+        // Auto-scroll to current line
+        if let Some(current_idx) = self.karaoke.current_line_index {
+            // Calculate approximate position of current line
+            // Each line takes approximately 60px (12px spacing + 28-48px text height)
+            let line_height = 60.0;
+            let target_offset = (current_idx as f32 * line_height).max(0.0);
 
-                for (i, line) in self.karaoke.lyrics.iter().enumerate() {
-                    let is_current = current_index == Some(i);
-                    let is_upcoming = current_index.map(|idx| i == idx + 1).unwrap_or(false);
-                    let is_past = current_index.map(|idx| i < idx).unwrap_or(false);
+            scroll_area = scroll_area.vertical_scroll_offset(target_offset);
+        }
 
-                    ui.add_space(12.0);
+        scroll_area.show(ui, |ui| {
+            ui.add_space(100.0); // Top padding for visual balance
 
-                    // Style based on line state
-                    let (color, size, strong) = if is_current {
-                        (self.ui.theme.accent(), 28.0, true)
-                    } else if is_upcoming {
-                        (self.ui.theme.primary(), 22.0, false)
-                    } else if is_past {
-                        (self.ui.theme.text_muted(), 18.0, false)
-                    } else {
-                        (self.ui.theme.text_muted().gamma_multiply(0.5), 16.0, false)
-                    };
+            let current_index = self.karaoke.current_line_index;
 
-                    let mut text = egui::RichText::new(&line.text).color(color).size(size);
+            for (i, line) in self.karaoke.lyrics.iter().enumerate() {
+                let is_current = current_index == Some(i);
+                let is_upcoming = current_index.map(|idx| i == idx + 1).unwrap_or(false);
+                let is_past = current_index.map(|idx| i < idx).unwrap_or(false);
 
-                    if strong {
-                        text = text.strong();
-                    }
+                // Style based on line state with reduced opacity
+                let (color, size, strong) = if is_current {
+                    (self.ui.theme.accent(), 28.0, true)
+                } else if is_upcoming {
+                    (self.ui.theme.primary().gamma_multiply(0.7), 22.0, false)
+                } else if is_past {
+                    (self.ui.theme.text_muted().gamma_multiply(0.4), 18.0, false)
+                } else {
+                    (self.ui.theme.text_muted().gamma_multiply(0.25), 16.0, false)
+                };
 
-                    ui.centered_and_justified(|ui| {
-                        ui.label(text);
-                    });
+                let mut text = egui::RichText::new(&line.text).color(color).size(size);
 
-                    ui.add_space(12.0);
+                if strong {
+                    text = text.strong();
                 }
 
-                ui.add_space(200.0);
-            });
+                ui.centered_and_justified(|ui| {
+                    ui.label(text);
+                });
+
+                ui.add_space(16.0); // Consistent spacing between lines
+            }
+
+            ui.add_space(200.0);
+        });
     }
 
     fn render_settings_view(&mut self, ui: &mut egui::Ui) {
