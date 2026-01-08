@@ -5,6 +5,7 @@ use tracing::{error, info, warn};
 
 use crate::audio::{generator, loader, player::AudioPlayer};
 use crate::library::{scanner, storage, Song};
+use crate::lrc::{self, LrcEvent};
 use crate::ui::{panels, settings::SettingsState, theme::Theme, widgets};
 
 pub struct Audio {
@@ -29,12 +30,25 @@ pub struct Library {
     add_song_path_input: String,
 }
 
+pub struct Karaoke {
+    lyrics: Vec<LyricLine>,
+    current_line_index: Option<usize>,
+    lrc_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LyricLine {
+    pub timestamp_ms: u64,
+    pub text: String,
+}
+
 pub struct KaraokeApp {
     settings_state: SettingsState,
 
     ui: UI,
     audio: Audio,
     library: Library,
+    karaoke: Karaoke,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,19 +217,17 @@ impl Library {
                 }
 
                 info!("Added {} to library", source_path.display());
-            }
+            },
             Err(e) => {
                 error!("Failed to add file to library: {}", e);
-            }
+            },
         }
     }
 
     /// Removes a song from the persistent library storage
     fn remove_from_library(&mut self, song: &Song) {
         // Find the metadata entry for this song
-        let stored_filename = song.path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let stored_filename = song.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if let Some(entry) = self.metadata.remove_entry(stored_filename) {
             if let Err(e) = storage::remove_from_library(&entry.stored_filename) {
@@ -260,6 +272,99 @@ impl Library {
     }
 }
 
+impl Karaoke {
+    pub fn new() -> Self {
+        Self {
+            lyrics: Vec::new(),
+            current_line_index: None,
+            lrc_error: None,
+        }
+    }
+
+    /// Loads LRC file for the given audio file
+    pub fn load_lyrics(&mut self, audio_path: &PathBuf) {
+        self.lyrics.clear();
+        self.current_line_index = None;
+        self.lrc_error = None;
+
+        // Try to find LRC file with same name as audio file
+        let lrc_path = audio_path.with_extension("lrc");
+
+        if !lrc_path.exists() {
+            info!("No LRC file found at: {}", lrc_path.display());
+            self.lrc_error = Some("No lyrics file found".to_string());
+            return;
+        }
+
+        match lrc::parse_lrc_file(&lrc_path) {
+            Ok(events) => {
+                info!("Loaded LRC file: {}", lrc_path.display());
+                self.parse_lrc_events(events);
+            },
+            Err(e) => {
+                error!("Failed to parse LRC file: {}", e);
+                self.lrc_error = Some(format!("Failed to parse lyrics: {}", e));
+            },
+        }
+    }
+
+    /// Converts LRC events into lyric lines
+    fn parse_lrc_events(&mut self, events: Vec<LrcEvent>) {
+        for event in events {
+            match event {
+                LrcEvent::Lyric {
+                    timestamps,
+                    segments,
+                } => {
+                    // For simple LRC files, use the first timestamp
+                    if let Some(first_ts) = timestamps.first() {
+                        // Combine all segment texts
+                        let text: String = segments.iter().map(|s| s.text.as_str()).collect();
+
+                        self.lyrics.push(LyricLine {
+                            timestamp_ms: first_ts.to_millis(),
+                            text,
+                        });
+                    }
+                },
+                LrcEvent::Metadata { .. } => {
+                    // Ignore metadata for now
+                },
+            }
+        }
+
+        // Sort lyrics by timestamp
+        self.lyrics.sort_by_key(|line| line.timestamp_ms);
+
+        info!("Loaded {} lyric lines", self.lyrics.len());
+    }
+
+    /// Updates the current line based on playback position
+    pub fn update(&mut self, current_position_ms: u64) {
+        if self.lyrics.is_empty() {
+            return;
+        }
+
+        // Find the active line (last line with timestamp <= current position)
+        let mut active_index = None;
+        for (i, line) in self.lyrics.iter().enumerate() {
+            if line.timestamp_ms <= current_position_ms {
+                active_index = Some(i);
+            } else {
+                break;
+            }
+        }
+
+        self.current_line_index = active_index;
+    }
+
+    pub fn clear(&mut self) {
+        self.lyrics.clear();
+        self.current_line_index = None;
+        self.lrc_error = None;
+    }
+}
+
 impl KaraokeApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::setup_fonts(&cc.egui_ctx);
@@ -277,6 +382,7 @@ impl KaraokeApp {
             audio: Audio::new(),
             ui: UI::new(),
             library: Library::new(),
+            karaoke: Karaoke::new(),
         }
     }
 
@@ -323,6 +429,10 @@ impl eframe::App for KaraokeApp {
         }
 
         let current_position = self.audio.audio_player.get_position();
+
+        // Update karaoke lyrics sync
+        let current_position_ms = current_position.as_millis() as u64;
+        self.karaoke.update(current_position_ms);
 
         let current_song_name = self
             .audio
@@ -457,15 +567,24 @@ impl KaraokeApp {
                 );
 
                 match library_action {
-                    widgets::LibraryAction::PlaySong(path) => self.audio.load_and_play_file(path),
+                    widgets::LibraryAction::PlaySong(path) => {
+                        self.audio.load_and_play_file(path.clone());
+                        self.karaoke.load_lyrics(&path);
+                    },
                     widgets::LibraryAction::AddSong => self.library.add_song_dialog(),
                     widgets::LibraryAction::AddSongFromPath => self.library.add_song_from_path(),
                     widgets::LibraryAction::RemoveSong(path) => {
                         // Find the song by path and remove it
-                        if let Some(song) = self.library.library.iter().find(|s| s.path == path).cloned() {
+                        if let Some(song) = self
+                            .library
+                            .library
+                            .iter()
+                            .find(|s| s.path == path)
+                            .cloned()
+                        {
                             self.library.remove_from_library(&song);
                         }
-                    }
+                    },
                     widgets::LibraryAction::None => {},
                 }
             });
@@ -474,49 +593,81 @@ impl KaraokeApp {
     }
 
     fn render_karaoke_view(&mut self, ui: &mut egui::Ui) {
-        ui.centered_and_justified(|ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space(100.0);
+        if self.karaoke.lyrics.is_empty() {
+            // No lyrics loaded - show placeholder
+            ui.centered_and_justified(|ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(100.0);
 
-                ui.label(
-                    egui::RichText::new("KARAOKE MODE")
-                        .size(32.0)
-                        .color(self.ui.theme.primary())
-                        .strong(),
-                );
+                    if let Some(error) = &self.karaoke.lrc_error {
+                        ui.label(
+                            egui::RichText::new(error)
+                                .size(18.0)
+                                .color(self.ui.theme.text_muted())
+                                .italics(),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("No lyrics loaded")
+                                .size(24.0)
+                                .color(self.ui.theme.text_muted()),
+                        );
 
-                ui.add_space(24.0);
+                        ui.add_space(16.0);
 
-                ui.label(
-                    egui::RichText::new("Lyrics display and karaoke HUD")
-                        .size(16.0)
-                        .color(self.ui.theme.text_muted())
-                        .italics(),
-                );
-
-                ui.add_space(16.0);
-
-                ui.label(
-                    egui::RichText::new("TO BE IMPLEMENTED")
-                        .size(14.0)
-                        .color(self.ui.theme.accent())
-                        .monospace(),
-                );
-
-                ui.add_space(32.0);
-
-                if ui
-                    .button(
-                        egui::RichText::new("[ Start Karaoke Session ]")
-                            .size(16.0)
-                            .color(self.ui.theme.primary()),
-                    )
-                    .clicked()
-                {
-                    info!("Karaoke session start - to be implemented");
-                }
+                        ui.label(
+                            egui::RichText::new("Play a song with a .lrc file to see lyrics")
+                                .size(14.0)
+                                .color(self.ui.theme.text_muted())
+                                .italics(),
+                        );
+                    }
+                });
             });
-        });
+            return;
+        }
+
+        // Display lyrics in karaoke style
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(50.0);
+
+                let current_index = self.karaoke.current_line_index;
+
+                for (i, line) in self.karaoke.lyrics.iter().enumerate() {
+                    let is_current = current_index == Some(i);
+                    let is_upcoming = current_index.map(|idx| i == idx + 1).unwrap_or(false);
+                    let is_past = current_index.map(|idx| i < idx).unwrap_or(false);
+
+                    ui.add_space(12.0);
+
+                    // Style based on line state
+                    let (color, size, strong) = if is_current {
+                        (self.ui.theme.accent(), 28.0, true)
+                    } else if is_upcoming {
+                        (self.ui.theme.primary(), 22.0, false)
+                    } else if is_past {
+                        (self.ui.theme.text_muted(), 18.0, false)
+                    } else {
+                        (self.ui.theme.text_muted().gamma_multiply(0.5), 16.0, false)
+                    };
+
+                    let mut text = egui::RichText::new(&line.text).color(color).size(size);
+
+                    if strong {
+                        text = text.strong();
+                    }
+
+                    ui.centered_and_justified(|ui| {
+                        ui.label(text);
+                    });
+
+                    ui.add_space(12.0);
+                }
+
+                ui.add_space(200.0);
+            });
     }
 
     fn render_settings_view(&mut self, ui: &mut egui::Ui) {
