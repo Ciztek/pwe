@@ -10,6 +10,7 @@ pub struct Song {
     pub name: String,
     #[allow(dead_code)]
     pub extension: String,
+    pub has_lyrics: bool,
 }
 
 impl Song {
@@ -32,10 +33,15 @@ impl Song {
             .and_then(|s| s.to_str())
             .map(|s| s.to_lowercase())?;
 
+        // Check if corresponding .lrc file exists
+        let lrc_path = path.with_extension("lrc");
+        let has_lyrics = lrc_path.exists();
+
         Some(Song {
             path,
             name,
             extension,
+            has_lyrics,
         })
     }
 }

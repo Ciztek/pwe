@@ -197,3 +197,97 @@ pub fn save_library_metadata(metadata: &LibraryMetadata) -> Result<()> {
     );
     Ok(())
 }
+
+/// Synchronizes the library metadata with actual files on disk
+/// - Removes entries for files that no longer exist
+/// - Updates metadata if files were modified
+/// Returns true if any changes were made
+pub fn sync_library(metadata: &mut LibraryMetadata) -> Result<bool> {
+    let library_dir = get_library_directory()?;
+    let mut changed = false;
+    let mut entries_to_remove = Vec::new();
+
+    // Check each metadata entry
+    for (idx, entry) in metadata.entries.iter().enumerate() {
+        let file_path = library_dir.join(&entry.stored_filename);
+
+        if !file_path.exists() {
+            info!(
+                "File no longer exists, marking for removal: {}",
+                entry.stored_filename
+            );
+            entries_to_remove.push(idx);
+            changed = true;
+        }
+    }
+
+    // Remove entries in reverse order to maintain indices
+    for idx in entries_to_remove.iter().rev() {
+        metadata.entries.remove(*idx);
+    }
+
+    // Scan for new files not in metadata
+    if let Ok(entries) = std::fs::read_dir(&library_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+
+            // Skip directories and non-audio files
+            if !path.is_file() {
+                continue;
+            }
+
+            let filename = match path.file_name().and_then(|s| s.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
+
+            // Skip metadata file and non-audio files
+            if filename == "library.json" {
+                continue;
+            }
+
+            let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            let audio_extensions = ["mp3", "wav", "flac", "ogg", "m4a", "aac"];
+
+            if !audio_extensions.contains(&extension) {
+                continue;
+            }
+
+            // Check if this file is already in metadata
+            let exists_in_metadata = metadata
+                .entries
+                .iter()
+                .any(|e| e.stored_filename == filename);
+
+            if !exists_in_metadata {
+                // New file detected - add to metadata
+                info!("Found new file in library: {}", filename);
+
+                let title = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+
+                let entry = LibraryEntry {
+                    original_path: path.clone(),
+                    stored_filename: filename.to_string(),
+                    title,
+                    added_date: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                };
+
+                metadata.entries.push(entry);
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        info!(
+            "Library synced: {} entries after sync",
+            metadata.entries.len()
+        );
+    }
+
+    Ok(changed)
+}

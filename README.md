@@ -186,6 +186,19 @@ cp target/x86_64-pc-windows-gnu/release/pwe-karaoke.exe /mnt/c/Users/YourUsernam
 
 ### 3. Building Installers (For Distribution)
 
+#### Windows (PowerShell)
+
+For Windows users, use the streamlined PowerShell build script:
+
+```powershell
+# One command builds everything (checks/installs Rust if needed)
+.\build-msi.ps1
+```
+
+See [BUILD_WINDOWS.md](BUILD_WINDOWS.md) for detailed Windows build instructions.
+
+#### Linux/macOS (Make)
+
 Build professional installers for all platforms:
 
 ```bash
