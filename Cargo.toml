@@ -1,8 +1,8 @@
 [package]
 name = "pwe-karaoke"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-authors = ["Your Team"]
+authors = ["AEUG"]
 description = "Desktop karaoke application with vocal separation using Spleeter"
 license = "BSD-3-Clause"
 repository = "https://github.com/Ciztek/pwe"
@@ -11,8 +11,8 @@ repository = "https://github.com/Ciztek/pwe"
 name = "PWE Karaoke"
 identifier = "com.ciztek.pwe-karaoke"
 icon = ["assets/icon.png"]
-version = "0.1.0"
-copyright = "Copyright (c) 2025 Ciztek"
+version = "1.0.0"
+copyright = "Copyright (c) 2026 Ciztek"
 category = "Music"
 short_description = "Desktop karaoke application"
 long_description = "Desktop karaoke application with audio playback, library management, and vocal separation capabilities."
@@ -47,6 +47,9 @@ tracing-subscriber = "0.3"
 
 # File dialogs
 rfd = "0.15"
+
+# Image processing for album art
+image = "0.25"
 
 # Path handling
 walkdir = "2.5"

@@ -527,11 +527,12 @@ impl eframe::App for KaraokeApp {
 
         self.karaoke.update(current_position_ms);
 
-        let current_song_name = self
+        // Find the current song in the library
+        let current_song = self
             .audio
             .current_file
             .as_ref()
-            .and_then(|path| path.file_stem().and_then(|s| s.to_str()));
+            .and_then(|path| self.library.library.iter().find(|s| &s.path == path));
 
         let (theme_switched, view_change) =
             panels::render_top_panel(ctx, self.ui.theme, self.ui.current_view);
@@ -550,7 +551,7 @@ impl eframe::App for KaraokeApp {
             current_position,
             self.audio.song_duration,
             self.ui.theme,
-            current_song_name,
+            current_song,
         );
 
         match playback_action {

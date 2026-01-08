@@ -233,7 +233,7 @@ cargo build --release --features spleeter
 ### 5. Build Summary
 
 | Platform | Command | Output Location | Features |
-|----------|---------|-----------------|----------|
+| ---------- | --------- | ----------------- | ---------- |
 | Linux Dev | `cargo build` | `target/debug/pwe-karaoke` | Fast compile, debug symbols |
 | Linux Release | `cargo build --release` | `target/release/pwe-karaoke` | Optimized, ~12MB |
 | Linux + Spleeter | `cargo build --release --features spleeter` | `target/release/pwe-karaoke` | With Python integration |

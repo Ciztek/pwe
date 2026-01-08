@@ -1,5 +1,6 @@
 use super::theme::Theme;
 use crate::app::AppView;
+use crate::library::Song;
 use eframe::egui;
 use std::time::Duration;
 
@@ -114,7 +115,7 @@ pub fn render_bottom_panel(
     current_position: Duration,
     song_duration: Option<Duration>,
     theme: Theme,
-    current_song_name: Option<&str>,
+    current_song: Option<&Song>,
 ) -> PlaybackAction {
     let mut action = PlaybackAction::None;
 
@@ -127,18 +128,73 @@ pub fn render_bottom_panel(
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
 
-                ui.painter().rect_filled(
-                    egui::Rect::from_min_size(ui.cursor().min, egui::vec2(40.0, 40.0)),
-                    2.0,
-                    theme.secondary(),
-                );
-                ui.allocate_space(egui::vec2(40.0, 40.0));
+                // Album art or placeholder
+                if let Some(song) = current_song {
+                    if let Some(metadata) = &song.metadata {
+                        if let Some(cover_data) = &metadata.cover_art {
+                            if let Ok(dynamic_image) = image::load_from_memory(cover_data) {
+                                let rgba_image = dynamic_image.to_rgba8();
+                                let size = 40.0;
+                                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                                    [rgba_image.width() as _, rgba_image.height() as _],
+                                    rgba_image.as_raw(),
+                                );
+                                let texture = ui.ctx().load_texture(
+                                    format!("playback_art_{}", song.path.display()),
+                                    color_image,
+                                    egui::TextureOptions::LINEAR,
+                                );
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(size, size),
+                                    egui::Sense::hover()
+                                );
+                                ui.painter().image(
+                                    texture.id(),
+                                    rect,
+                                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                    egui::Color32::WHITE
+                                );
+                            } else {
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(
+                                        ui.cursor().min,
+                                        egui::vec2(40.0, 40.0),
+                                    ),
+                                    2.0,
+                                    theme.secondary(),
+                                );
+                                ui.allocate_space(egui::vec2(40.0, 40.0));
+                            }
+                        } else {
+                            ui.painter().rect_filled(
+                                egui::Rect::from_min_size(ui.cursor().min, egui::vec2(40.0, 40.0)),
+                                2.0,
+                                theme.secondary(),
+                            );
+                            ui.allocate_space(egui::vec2(40.0, 40.0));
+                        }
+                    } else {
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(ui.cursor().min, egui::vec2(40.0, 40.0)),
+                            2.0,
+                            theme.secondary(),
+                        );
+                        ui.allocate_space(egui::vec2(40.0, 40.0));
+                    }
+                } else {
+                    ui.painter().rect_filled(
+                        egui::Rect::from_min_size(ui.cursor().min, egui::vec2(40.0, 40.0)),
+                        2.0,
+                        theme.secondary(),
+                    );
+                    ui.allocate_space(egui::vec2(40.0, 40.0));
+                }
 
                 ui.add_space(12.0);
 
-                if let Some(name) = current_song_name {
+                if let Some(song) = current_song {
                     ui.label(
-                        egui::RichText::new(name)
+                        egui::RichText::new(song.display_title())
                             .color(theme.text_primary())
                             .size(14.0),
                     );

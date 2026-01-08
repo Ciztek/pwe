@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum LrcError {
     InvalidTimestamp(String),
+    #[allow(dead_code)]
     UnexpectedToken(String),
     Io(String),
 }

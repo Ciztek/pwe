@@ -201,18 +201,70 @@ pub fn render_library_section(
                             .italics(),
                     );
                 } else {
-                    ui.label(
-                        egui::RichText::new(&library[0].name)
-                            .size(18.0)
-                            .color(theme.text_primary())
-                            .strong(),
-                    );
-                    ui.add_space(4.0);
-                    ui.label(
-                        egui::RichText::new(format!("{} tracks loaded", library.len()))
-                            .size(12.0)
-                            .color(theme.text_muted()),
-                    );
+                    let first_song = &library[0];
+
+                    ui.horizontal(|ui| {
+                        // Show album art if available
+                        if let Some(metadata) = &first_song.metadata {
+                            if let Some(cover_data) = &metadata.cover_art {
+                                if let Ok(dynamic_image) = image::load_from_memory(cover_data) {
+                                    let rgba_image = dynamic_image.to_rgba8();
+                                    let size = 48.0;
+                                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                                        [rgba_image.width() as _, rgba_image.height() as _],
+                                        rgba_image.as_raw(),
+                                    );
+                                    let texture = ui.ctx().load_texture(
+                                        format!("library_header_art_{}", first_song.path.display()),
+                                        color_image,
+                                        egui::TextureOptions::LINEAR,
+                                    );
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(size, size),
+                                        egui::Sense::hover()
+                                    );
+                                    ui.painter().image(
+                                        texture.id(),
+                                        rect,
+                                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                        egui::Color32::WHITE
+                                    );
+                                    ui.add_space(8.0);
+                                }
+                            }
+                        }
+
+                        ui.vertical(|ui| {
+                            ui.label(
+                                egui::RichText::new(first_song.display_title())
+                                    .size(18.0)
+                                    .color(theme.text_primary())
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+
+                            // Show artist and album if available
+                            if let Some(artist) = first_song.artist() {
+                                ui.label(
+                                    egui::RichText::new(artist)
+                                        .size(13.0)
+                                        .color(theme.text_muted()),
+                                );
+                            }
+                            if let Some(album) = first_song.album() {
+                                ui.label(
+                                    egui::RichText::new(format!("♫ {}", album))
+                                        .size(11.0)
+                                        .color(theme.text_muted()),
+                                );
+                            }
+                            ui.label(
+                                egui::RichText::new(format!("{} tracks loaded", library.len()))
+                                    .size(12.0)
+                                    .color(theme.text_muted()),
+                            );
+                        });
+                    });
                 }
 
                 ui.add_space(8.0);
@@ -330,7 +382,16 @@ pub fn render_library_section(
             let filter_lower = filter.to_lowercase();
             library
                 .iter()
-                .filter(|song| song.name.to_lowercase().contains(&filter_lower))
+                .filter(|song| {
+                    // Search in filename
+                    song.name.to_lowercase().contains(&filter_lower)
+                    // Search in metadata title
+                    || song.display_title().to_lowercase().contains(&filter_lower)
+                    // Search in artist
+                    || song.artist().map(|a| a.to_lowercase().contains(&filter_lower)).unwrap_or(false)
+                    // Search in album
+                    || song.album().map(|a| a.to_lowercase().contains(&filter_lower)).unwrap_or(false)
+                })
                 .collect()
         };
 
@@ -348,79 +409,146 @@ pub fn render_library_section(
                     });
                 } else {
                     for (idx, song) in filtered_songs.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{:02}.", idx + 1))
-                                    .color(theme.text_muted())
-                                    .size(12.0)
-                                    .monospace(),
-                            );
-
-                            ui.add_space(8.0);
-
-                            let song_label = ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(&song.name)
-                                        .color(theme.text_primary())
-                                        .size(13.0),
-                                )
-                                .sense(egui::Sense::click()),
-                            );
-
-                            if song_label.clicked() {
-                                action = LibraryAction::PlaySong(song.path.clone());
-                            }
-
-                            if song_label.hovered() {
-                                ui.painter().rect_stroke(
-                                    song_label.rect.expand(2.0),
-                                    2.0,
-                                    egui::Stroke::new(1.0, theme.accent()),
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("{:02}.", idx + 1))
+                                        .color(theme.text_muted())
+                                        .size(12.0)
+                                        .monospace(),
                                 );
-                            }
 
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui
-                                        .button(
-                                            egui::RichText::new("[×]")
-                                                .size(14.0)
-                                                .color(theme.error()),
+                                ui.add_space(8.0);
+
+                                // Album art thumbnail if available
+                                if let Some(metadata) = &song.metadata {
+                                    if let Some(cover_art) = &metadata.cover_art {
+                                        if let Ok(image) = image::load_from_memory(cover_art) {
+                                            let size = 32.0;
+                                            let rgba_image = image.to_rgba8();
+                                            let pixels = rgba_image.as_flat_samples();
+                                            let color_image =
+                                                egui::ColorImage::from_rgba_unmultiplied(
+                                                    [
+                                                        rgba_image.width() as _,
+                                                        rgba_image.height() as _,
+                                                    ],
+                                                    pixels.as_slice(),
+                                                );
+                                            let texture = ui.ctx().load_texture(
+                                                format!("album_art_{}", song.path.display()),
+                                                color_image,
+                                                egui::TextureOptions::LINEAR,
+                                            );
+                                            let (rect, _) = ui.allocate_exact_size(
+                                                egui::vec2(size, size),
+                                                egui::Sense::hover()
+                                            );
+                                            ui.painter().image(
+                                                texture.id(),
+                                                rect,
+                                                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                                                egui::Color32::WHITE
+                                            );
+                                            ui.add_space(8.0);
+                                        }
+                                    }
+                                }
+
+                                ui.vertical(|ui| {
+                                    // Song title
+                                    let song_label = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(song.display_title())
+                                                .color(theme.text_primary())
+                                                .size(13.0),
                                         )
-                                        .clicked()
-                                    {
-                                        action = LibraryAction::RemoveSong(song.path.clone());
+                                        .sense(egui::Sense::click()),
+                                    );
+
+                                    if song_label.clicked() {
+                                        action = LibraryAction::PlaySong(song.path.clone());
                                     }
 
-                                    ui.add_space(8.0);
+                                    if song_label.hovered() {
+                                        ui.painter().rect_stroke(
+                                            song_label.rect.expand(2.0),
+                                            2.0,
+                                            egui::Stroke::new(1.0, theme.accent()),
+                                        );
+                                    }
 
-                                    // Show lyrics indicator
-                                    let lyrics_icon = if song.has_lyrics { "🎤" } else { "♪" };
-                                    let lyrics_color = if song.has_lyrics {
-                                        theme.accent()
-                                    } else {
-                                        theme.text_muted()
-                                    };
+                                    // Artist info if available
+                                    if let Some(artist) = song.artist() {
+                                        ui.label(
+                                            egui::RichText::new(artist)
+                                                .color(theme.text_muted())
+                                                .size(10.0),
+                                        );
+                                    }
+                                });
 
-                                    ui.label(
-                                        egui::RichText::new(lyrics_icon)
-                                            .size(13.0)
-                                            .color(lyrics_color),
-                                    )
-                                    .on_hover_text(
-                                        if song.has_lyrics {
-                                            "Has lyrics file"
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .button(
+                                                egui::RichText::new("[×]")
+                                                    .size(14.0)
+                                                    .color(theme.error()),
+                                            )
+                                            .clicked()
+                                        {
+                                            action = LibraryAction::RemoveSong(song.path.clone());
+                                        }
+
+                                        ui.add_space(8.0);
+
+                                        // Show lyrics indicator
+                                        let lyrics_icon =
+                                            if song.has_lyrics { "🎤" } else { "♪" };
+                                        let lyrics_color = if song.has_lyrics {
+                                            theme.accent()
                                         } else {
-                                            "No lyrics file"
-                                        },
-                                    );
-                                },
-                            );
+                                            theme.text_muted()
+                                        };
+
+                                        ui.label(
+                                            egui::RichText::new(lyrics_icon)
+                                                .size(13.0)
+                                                .color(lyrics_color),
+                                        )
+                                        .on_hover_text(
+                                            if song.has_lyrics {
+                                                "Has lyrics file"
+                                            } else {
+                                                "No lyrics file"
+                                            },
+                                        );
+
+                                        ui.add_space(8.0);
+
+                                        // Show duration if available
+                                        if let Some(duration) = song.duration() {
+                                            let minutes = duration / 60;
+                                            let seconds = duration % 60;
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}:{:02}",
+                                                    minutes, seconds
+                                                ))
+                                                .size(11.0)
+                                                .color(theme.text_muted())
+                                                .monospace(),
+                                            );
+                                        }
+                                    },
+                                );
+                            });
                         });
 
                         if idx < filtered_songs.len() - 1 {
-                            ui.add_space(4.0);
+                            ui.add_space(8.0);
                         }
                     }
                 }

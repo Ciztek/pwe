@@ -5,7 +5,6 @@ pub mod tokenizer;
 pub mod tokens;
 
 pub use error::LrcError;
-pub use timestamp::TimeStamp;
 pub use tokens::LrcEvent;
 
 use std::path::Path;

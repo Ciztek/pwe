@@ -10,6 +10,7 @@ pub enum Token {
 
 #[derive(Debug, Clone)]
 pub enum LrcEvent {
+    #[allow(dead_code)]
     Metadata {
         key: String,
         value: String,
