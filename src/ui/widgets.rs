@@ -165,9 +165,11 @@ pub fn render_library_section(
     _library_path: Option<&Path>,
     filter: &mut str,
     add_song_path_input: &mut String,
+    current_page: usize,
     theme: Theme,
-) -> LibraryAction {
+) -> (LibraryAction, usize) {
     let mut action = LibraryAction::None;
+    let mut page = current_page;
 
     render_armor_card(ui, theme, |ui| {
         ui.horizontal(|ui| {
@@ -411,7 +413,19 @@ pub fn render_library_section(
                         );
                     });
                 } else {
-                    for (idx, song) in filtered_songs.iter().enumerate() {
+                    let page_size = 8;
+                    let total_pages = filtered_songs.len().div_ceil(page_size);
+
+                    if page >= total_pages {
+                        page = total_pages.saturating_sub(1);
+                    }
+
+                    let start_idx = page * page_size;
+                    let end_idx = (start_idx + page_size).min(filtered_songs.len());
+                    let current_page_songs = &filtered_songs[start_idx..end_idx];
+
+                    for (local_idx, song) in current_page_songs.iter().enumerate() {
+                        let idx = start_idx + local_idx;
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
@@ -553,15 +567,96 @@ pub fn render_library_section(
                             });
                         });
 
-                        if idx < filtered_songs.len() - 1 {
+                        if local_idx < current_page_songs.len() - 1 {
                             ui.add_space(8.0);
                         }
                     }
+
+                    // Pagination controls
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(12.0);
+
+                    ui.horizontal(|ui| {
+                        let prev_enabled = page > 0;
+                        let prev_color = if prev_enabled {
+                            theme.primary()
+                        } else {
+                            theme.text_muted()
+                        };
+
+                        if ui
+                            .add_enabled(
+                                prev_enabled,
+                                egui::Button::new(
+                                    egui::RichText::new("Prev").color(prev_color).size(12.0),
+                                ),
+                            )
+                            .clicked()
+                        {
+                            page = page.saturating_sub(1);
+                        }
+
+                        ui.add_space(8.0);
+
+                        // Page indicator
+                        ui.label(
+                            egui::RichText::new(format!("< {} / {} >", page + 1, total_pages))
+                                .color(theme.text_primary())
+                                .size(13.0)
+                                .monospace(),
+                        );
+
+                        ui.add_space(8.0);
+
+                        let next_enabled = page < total_pages - 1;
+                        let next_color = if next_enabled {
+                            theme.primary()
+                        } else {
+                            theme.text_muted()
+                        };
+
+                        if ui
+                            .add_enabled(
+                                next_enabled,
+                                egui::Button::new(
+                                    egui::RichText::new("Next").color(next_color).size(12.0),
+                                ),
+                            )
+                            .clicked()
+                        {
+                            page = (page + 1).min(total_pages - 1);
+                        }
+
+                        if total_pages > 8 {
+                            ui.add_space(16.0);
+                            ui.label(
+                                egui::RichText::new("Go to page:")
+                                    .color(theme.text_muted())
+                                    .size(11.0),
+                            );
+
+                            let mut page_input_str = (page + 1).to_string();
+                            let page_input_edit = ui.add(
+                                egui::TextEdit::singleline(&mut page_input_str)
+                                    .desired_width(40.0)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+
+                            if page_input_edit.changed() {
+                                if let Ok(input_page) = page_input_str.parse::<usize>() {
+                                    if input_page > 0 && input_page <= total_pages {
+                                        page = input_page - 1;
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
             });
     }
 
-    action
+    (action, page)
 }
 
 #[allow(dead_code)]

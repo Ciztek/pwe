@@ -30,6 +30,7 @@ pub struct Library {
     metadata: storage::LibraryMetadata,
     library_dir: Option<PathBuf>,
     add_song_path_input: String,
+    current_page: usize,
 }
 
 pub struct Karaoke {
@@ -185,6 +186,7 @@ impl Library {
             metadata,
             library_dir: library_dir.clone(),
             add_song_path_input: String::new(),
+            current_page: 0,
         };
 
         // Scan the library directory on startup
@@ -705,14 +707,17 @@ impl KaraokeApp {
                 ui.set_min_width(ui.available_width());
                 ui.set_max_height(ui.available_height());
 
-                let library_action = widgets::render_library_section(
+                let (library_action, new_page) = widgets::render_library_section(
                     ui,
                     &self.library.library,
                     self.library.library_path.as_deref(),
                     &mut self.library.library_filter,
                     &mut self.library.add_song_path_input,
+                    self.library.current_page,
                     self.ui.theme,
                 );
+
+                self.library.current_page = new_page;
 
                 match library_action {
                     widgets::LibraryAction::PlaySong(path) => {
