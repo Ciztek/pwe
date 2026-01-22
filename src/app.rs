@@ -5,6 +5,7 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::audio::{generator, loader, player::AudioPlayer};
+use crate::config::AppConfig;
 use crate::library::{scanner, storage, Song};
 use crate::lrc::{self, LrcEvent};
 use crate::ui::{panels, settings::SettingsState, theme::Theme, widgets};
@@ -891,7 +892,41 @@ impl KaraokeApp {
 
     fn render_settings_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(8.0);
-        crate::ui::settings::render_settings_panel(ui, self.ui.theme, &mut self.settings_state);
+        if let Some(action) =
+            crate::ui::settings::render_settings_panel(ui, self.ui.theme, &mut self.settings_state)
+        {
+            self.handle_settings_action(action);
+        }
+    }
+
+    fn handle_settings_action(&mut self, action: crate::ui::settings::SettingsAction) {
+        use crate::ui::settings::SettingsAction;
+
+        match action {
+            SettingsAction::SaveConfig => match self.settings_state.config.save() {
+                Ok(()) => {
+                    info!("Configuration saved successfully");
+                },
+                Err(e) => {
+                    error!("Failed to save configuration: {}", e);
+                },
+            },
+            SettingsAction::ResetConfig => {
+                self.settings_state.config = AppConfig::default();
+                info!("Configuration reset to factory defaults");
+            },
+            SettingsAction::RescanLibrary => {
+                info!("Rescanning library...");
+                let mut all_songs = Vec::new();
+                for path in &self.settings_state.config.library.paths {
+                    let songs = scanner::scan_directory(path);
+                    info!("Found {} songs in {}", songs.len(), path.display());
+                    all_songs.extend(songs);
+                }
+                // Replace library with newly scanned songs
+                self.library.library = all_songs;
+            },
+        }
     }
 }
 

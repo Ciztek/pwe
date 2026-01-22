@@ -1,6 +1,16 @@
 use super::theme::Theme;
+use crate::audio::devices;
+use crate::config::AppConfig;
 use eframe::egui;
+use std::path::PathBuf;
 use tracing::info;
+
+#[derive(Debug, Clone)]
+pub enum SettingsAction {
+    SaveConfig,
+    ResetConfig,
+    RescanLibrary,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SettingsSection {
@@ -12,21 +22,29 @@ enum SettingsSection {
 
 pub struct SettingsState {
     current_section: SettingsSection,
-    noise_gate_enabled: bool,
-    input_gain: f32,
+    pub config: AppConfig,
+    available_output_devices: Vec<devices::AudioDevice>,
+    new_library_path: String,
 }
 
 impl Default for SettingsState {
     fn default() -> Self {
         Self {
             current_section: SettingsSection::Audio,
-            noise_gate_enabled: true,
-            input_gain: 0.75,
+            config: AppConfig::load(),
+            available_output_devices: devices::list_output_devices(),
+            new_library_path: String::new(),
         }
     }
 }
 
-pub fn render_settings_panel(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsState) {
+pub fn render_settings_panel(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    state: &mut SettingsState,
+) -> Option<SettingsAction> {
+    let mut action = None;
+
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(200.0);
@@ -77,14 +95,16 @@ pub fn render_settings_panel(ui: &mut egui::Ui, theme: Theme, state: &mut Settin
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_width(ui.available_width());
 
-            match state.current_section {
+            action = match state.current_section {
                 SettingsSection::Audio => render_audio_settings(ui, theme, state),
-                SettingsSection::Display => render_display_settings(ui, theme),
-                SettingsSection::Library => render_library_settings(ui, theme),
+                SettingsSection::Display => render_display_settings(ui, theme, state),
+                SettingsSection::Library => render_library_settings(ui, theme, state),
                 SettingsSection::Network => render_network_settings(ui, theme),
-            }
+            };
         });
     });
+
+    action
 }
 
 fn render_category_button(
@@ -112,7 +132,12 @@ fn render_category_button(
     }
 }
 
-fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsState) {
+fn render_audio_settings(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    state: &mut SettingsState,
+) -> Option<SettingsAction> {
+    let mut action = None;
     ui.add_space(16.0);
 
     render_settings_card(ui, theme, "AUDIO OUTPUT", |ui, theme| {
@@ -123,11 +148,34 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
         );
         ui.add_space(4.0);
 
+        let selected_device = state
+            .config
+            .audio
+            .output_device
+            .clone()
+            .unwrap_or_else(|| "Default Output".to_string());
+
         egui::ComboBox::from_id_salt("audio_device")
-            .selected_text("Default Output")
+            .selected_text(&selected_device)
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut "default", "default", "Default Output");
-                info!("Audio device selection - to be implemented");
+                for device in &state.available_output_devices {
+                    let label = if device.is_default {
+                        format!("{} (Default)", device.name)
+                    } else {
+                        device.name.clone()
+                    };
+
+                    if ui
+                        .selectable_value(
+                            &mut state.config.audio.output_device,
+                            Some(device.name.clone()),
+                            label,
+                        )
+                        .clicked()
+                    {
+                        info!("Selected audio device: {}", device.name);
+                    }
+                }
             });
 
         ui.add_space(8.0);
@@ -138,7 +186,7 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
                 .size(12.0),
         );
         ui.add_space(4.0);
-        ui.label(egui::RichText::new("25ms").color(theme.text_primary()));
+        ui.label(egui::RichText::new("~25ms (auto)").color(theme.text_primary()));
     });
 
     ui.add_space(16.0);
@@ -152,19 +200,22 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
         ui.add_space(4.0);
 
         let slider_response = ui.add(
-            egui::Slider::new(&mut state.input_gain, 0.0..=1.0)
+            egui::Slider::new(&mut state.config.audio.input_gain, 0.0..=1.0)
                 .show_value(false)
                 .trailing_fill(true),
         );
 
         ui.label(
-            egui::RichText::new(format!("{}%", (state.input_gain * 100.0) as i32))
-                .color(theme.accent())
-                .monospace(),
+            egui::RichText::new(format!(
+                "{}%",
+                (state.config.audio.input_gain * 100.0) as i32
+            ))
+            .color(theme.accent())
+            .monospace(),
         );
 
         if slider_response.changed() {
-            info!("Input gain changed to: {}", state.input_gain);
+            info!("Input gain changed to: {}", state.config.audio.input_gain);
         }
 
         ui.add_space(12.0);
@@ -177,12 +228,12 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            let switch_text = if state.noise_gate_enabled {
+            let switch_text = if state.config.audio.noise_gate_enabled {
                 "[ ON ]"
             } else {
                 "[ OFF ]"
             };
-            let switch_color = if state.noise_gate_enabled {
+            let switch_color = if state.config.audio.noise_gate_enabled {
                 theme.accent()
             } else {
                 theme.text_muted()
@@ -192,32 +243,38 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
                 .button(egui::RichText::new(switch_text).color(switch_color))
                 .clicked()
             {
-                state.noise_gate_enabled = !state.noise_gate_enabled;
-                info!("Noise gate toggled: {}", state.noise_gate_enabled);
+                state.config.audio.noise_gate_enabled = !state.config.audio.noise_gate_enabled;
+                info!(
+                    "Noise gate toggled: {}",
+                    state.config.audio.noise_gate_enabled
+                );
             }
         });
+
+        if state.config.audio.noise_gate_enabled {
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("Threshold:")
+                    .color(theme.text_muted())
+                    .size(12.0),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.config.audio.noise_gate_threshold, 0.0..=0.1)
+                    .text("Level")
+                    .trailing_fill(true),
+            );
+        }
     });
 
     ui.add_space(16.0);
 
     render_settings_card(ui, theme, "THEME OVERRIDE", |ui, theme| {
-        ui.radio_value(
-            &mut "auto",
-            "auto",
-            egui::RichText::new("AUTO (System)").color(theme.text_muted()),
+        ui.label(
+            egui::RichText::new("Theme settings controlled in main view")
+                .color(theme.text_muted())
+                .italics()
+                .size(12.0),
         );
-        ui.radio_value(
-            &mut "tekkadan",
-            "tekkadan",
-            egui::RichText::new("TEKKADAN (Dark)").color(theme.primary()),
-        );
-        ui.radio_value(
-            &mut "barbatos",
-            "barbatos",
-            egui::RichText::new("BARBATOS (Light)").color(theme.accent()),
-        );
-
-        info!("Theme selection - handled by main theme switcher");
     });
 
     ui.add_space(24.0);
@@ -227,7 +284,7 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
             .button(egui::RichText::new("[ RESET TO FACTORY ]").color(theme.alert()))
             .clicked()
         {
-            info!("Reset to factory defaults - to be implemented");
+            action = Some(SettingsAction::ResetConfig);
         }
 
         ui.add_space(8.0);
@@ -236,68 +293,247 @@ fn render_audio_settings(ui: &mut egui::Ui, theme: Theme, state: &mut SettingsSt
             .button(egui::RichText::new("[ SAVE CONFIG ]").color(theme.primary()))
             .clicked()
         {
-            info!("Save configuration - to be implemented");
+            action = Some(SettingsAction::SaveConfig);
         }
     });
+
+    action
 }
 
-fn render_display_settings(ui: &mut egui::Ui, theme: Theme) {
+fn render_display_settings(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    state: &mut SettingsState,
+) -> Option<SettingsAction> {
+    let mut action = None;
     ui.add_space(16.0);
 
     render_settings_card(ui, theme, "HUD OPTIONS", |ui, theme| {
         ui.label(
-            egui::RichText::new("Display settings will be implemented here")
+            egui::RichText::new("Font Size:")
                 .color(theme.text_muted())
-                .italics(),
+                .size(12.0),
         );
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::Slider::new(&mut state.config.display.font_size, 10.0..=32.0)
+                    .text("pt")
+                    .trailing_fill(true),
+            );
+
+            if ui.button("[ Reset ]").clicked() {
+                state.config.display.font_size = 16.0;
+            }
+        });
+
+        ui.add_space(12.0);
+
+        ui.checkbox(
+            &mut state.config.display.show_waveform,
+            egui::RichText::new("Show Audio Waveform").color(theme.text_primary()),
+        );
+
         ui.add_space(8.0);
+
+        ui.checkbox(
+            &mut state.config.display.show_pitch_guide,
+            egui::RichText::new("Show Pitch Guide").color(theme.text_primary()),
+        );
+
+        ui.add_space(8.0);
+
+        ui.checkbox(
+            &mut state.config.display.fullscreen,
+            egui::RichText::new("Start in Fullscreen").color(theme.text_primary()),
+        );
+    });
+
+    ui.add_space(16.0);
+
+    render_settings_card(ui, theme, "LYRICS DISPLAY", |ui, theme| {
         ui.label(
-            egui::RichText::new("• Font size adjustments")
+            egui::RichText::new("• Lyrics automatically loaded from .lrc files")
                 .color(theme.text_muted())
                 .size(12.0),
         );
         ui.label(
-            egui::RichText::new("• Lyric display options")
+            egui::RichText::new("• Current/upcoming lines highlighted")
                 .color(theme.text_muted())
                 .size(12.0),
         );
         ui.label(
-            egui::RichText::new("• HUD visibility toggles")
+            egui::RichText::new("• Color customization coming soon")
                 .color(theme.text_muted())
                 .size(12.0),
         );
     });
+
+    ui.add_space(24.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .button(egui::RichText::new("[ RESET TO FACTORY ]").color(theme.alert()))
+            .clicked()
+        {
+            action = Some(SettingsAction::ResetConfig);
+        }
+
+        ui.add_space(8.0);
+
+        if ui
+            .button(egui::RichText::new("[ SAVE CONFIG ]").color(theme.primary()))
+            .clicked()
+        {
+            action = Some(SettingsAction::SaveConfig);
+        }
+    });
+
+    action
 }
 
-fn render_library_settings(ui: &mut egui::Ui, theme: Theme) {
+fn render_library_settings(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    state: &mut SettingsState,
+) -> Option<SettingsAction> {
+    let mut action = None;
     ui.add_space(16.0);
 
     render_settings_card(ui, theme, "LIBRARY PATHS", |ui, theme| {
         ui.label(
-            egui::RichText::new("Library path configuration")
+            egui::RichText::new("Managed Folders:")
                 .color(theme.text_muted())
-                .italics(),
+                .size(12.0),
         );
+        ui.add_space(4.0);
+
+        // Display existing paths
+        let mut to_remove = None;
+        for (idx, path) in state.config.library.paths.iter().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("📁 {}", path.display()))
+                        .color(theme.text_primary())
+                        .size(11.0),
+                );
+
+                if ui
+                    .button(egui::RichText::new("[ X ]").color(theme.alert()))
+                    .on_hover_text("Remove folder")
+                    .clicked()
+                {
+                    to_remove = Some(idx);
+                }
+            });
+        }
+
+        if let Some(idx) = to_remove {
+            state.config.library.paths.remove(idx);
+            info!("Removed library path at index {}", idx);
+        }
+
+        if state.config.library.paths.is_empty() {
+            ui.label(
+                egui::RichText::new("No folders added yet")
+                    .color(theme.text_muted())
+                    .italics()
+                    .size(11.0),
+            );
+        }
+
         ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("• Add/remove library folders")
-                .color(theme.text_muted())
-                .size(12.0),
-        );
-        ui.label(
-            egui::RichText::new("• Auto-scan settings")
-                .color(theme.text_muted())
-                .size(12.0),
-        );
-        ui.label(
-            egui::RichText::new("• File type filters")
-                .color(theme.text_muted())
-                .size(12.0),
-        );
+
+        // Add new path
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut state.new_library_path);
+
+            if ui
+                .button(egui::RichText::new("[ Browse ]").color(theme.primary()))
+                .clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    state.new_library_path = path.display().to_string();
+                }
+            }
+
+            if ui
+                .button(egui::RichText::new("[ Add ]").color(theme.accent()))
+                .clicked()
+                && !state.new_library_path.is_empty()
+            {
+                let path = PathBuf::from(&state.new_library_path);
+                if path.exists() {
+                    state.config.library.paths.push(path);
+                    state.new_library_path.clear();
+                    info!("Added new library path");
+                }
+            }
+        });
     });
+
+    ui.add_space(16.0);
+
+    render_settings_card(ui, theme, "SCAN SETTINGS", |ui, theme| {
+        ui.checkbox(
+            &mut state.config.library.auto_scan,
+            egui::RichText::new("Auto-scan on startup").color(theme.text_primary()),
+        );
+
+        ui.add_space(12.0);
+
+        ui.label(
+            egui::RichText::new("Supported File Types:")
+                .color(theme.text_muted())
+                .size(12.0),
+        );
+        ui.add_space(4.0);
+
+        ui.horizontal_wrapped(|ui| {
+            for file_type in &state.config.library.file_types {
+                ui.label(
+                    egui::RichText::new(format!(".{}", file_type))
+                        .color(theme.accent())
+                        .monospace(),
+                );
+            }
+        });
+
+        ui.add_space(8.0);
+
+        if ui
+            .button(egui::RichText::new("[ RESCAN NOW ]").color(theme.primary()))
+            .clicked()
+        {
+            action = Some(SettingsAction::RescanLibrary);
+        }
+    });
+
+    ui.add_space(24.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .button(egui::RichText::new("[ RESET TO FACTORY ]").color(theme.alert()))
+            .clicked()
+        {
+            action = Some(SettingsAction::ResetConfig);
+        }
+
+        ui.add_space(8.0);
+
+        if ui
+            .button(egui::RichText::new("[ SAVE CONFIG ]").color(theme.primary()))
+            .clicked()
+        {
+            action = Some(SettingsAction::SaveConfig);
+        }
+    });
+
+    action
 }
 
-fn render_network_settings(ui: &mut egui::Ui, theme: Theme) {
+fn render_network_settings(ui: &mut egui::Ui, theme: Theme) -> Option<SettingsAction> {
     ui.add_space(16.0);
 
     render_settings_card(ui, theme, "ALAYA-LINK CONNECTION", |ui, theme| {
@@ -323,6 +559,8 @@ fn render_network_settings(ui: &mut egui::Ui, theme: Theme) {
                 .size(12.0),
         );
     });
+
+    None
 }
 
 fn render_settings_card<F>(ui: &mut egui::Ui, theme: Theme, title: &str, content: F)
