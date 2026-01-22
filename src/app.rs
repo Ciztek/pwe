@@ -17,6 +17,8 @@ use std::collections::HashMap;
 pub struct AppState {
     pub song_pagination: usize,
     pub thumbnail_texture_cache: HashMap<PathBuf, egui::TextureHandle>,
+    pub fps_smooth: f32,
+    pub last_frame_time: Option<std::time::Instant>,
 }
 
 pub struct Audio {
@@ -570,6 +572,22 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Calculate FPS
+        let now = std::time::Instant::now();
+        if let Some(last_time) = self.app_state.last_frame_time {
+            let frame_time = now.duration_since(last_time).as_secs_f32();
+            if frame_time > 0.0 {
+                let fps = 1.0 / frame_time;
+                // Smooth FPS with exponential moving average
+                self.app_state.fps_smooth = if self.app_state.fps_smooth > 0.0 {
+                    self.app_state.fps_smooth * 0.9 + fps * 0.1
+                } else {
+                    fps
+                };
+            }
+        }
+        self.app_state.last_frame_time = Some(now);
+
         // Poll download progress channel
         if let Some(rx) = &self.network_state.download_rx {
             while let Ok(msg) = rx.try_recv() {
@@ -641,8 +659,12 @@ impl eframe::App for KaraokeApp {
             .as_ref()
             .and_then(|path| self.library.library.iter().find(|s| &s.path == path));
 
-        let (theme_switched, view_change) =
-            panels::render_top_panel(ctx, self.ui.theme, self.ui.current_view);
+        let (theme_switched, view_change) = panels::render_top_panel(
+            ctx,
+            self.ui.theme,
+            self.ui.current_view,
+            self.app_state.fps_smooth,
+        );
         if theme_switched {
             self.ui.theme = self.ui.theme.up();
             info!("Theme switched to {:?}", self.ui.theme);

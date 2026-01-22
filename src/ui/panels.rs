@@ -19,6 +19,7 @@ pub fn render_top_panel(
     ctx: &egui::Context,
     theme: Theme,
     current_view: AppView,
+    fps: f32,
 ) -> (bool, Option<AppView>) {
     theme.apply(ctx);
 
@@ -101,6 +102,16 @@ pub fn render_top_panel(
                         .clicked()
                     {
                         theme_switched = true;
+                    }
+
+                    if cfg!(debug_assertions) && fps > 0.0 {
+                        ui.label(
+                            egui::RichText::new(format!("{:.0} FPS", fps))
+                                .color(theme.text_muted())
+                                .size(12.0)
+                                .monospace(),
+                        );
+                        ui.add_space(12.0);
                     }
                 });
             });
