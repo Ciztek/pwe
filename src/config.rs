@@ -7,6 +7,8 @@ pub struct AppConfig {
     pub audio: AudioConfig,
     pub display: DisplayConfig,
     pub library: LibraryConfig,
+    #[serde(default)]
+    pub network: NetworkConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,12 +34,20 @@ pub struct LibraryConfig {
     pub file_types: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkConfig {
+    pub youtube_playlist_url: String,
+    pub spotify_playlist_url: String,
+    pub download_path: Option<PathBuf>,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             audio: AudioConfig::default(),
             display: DisplayConfig::default(),
             library: LibraryConfig::default(),
+            network: NetworkConfig::default(),
         }
     }
 }
@@ -76,6 +86,19 @@ impl Default for LibraryConfig {
                 "wav".to_string(),
                 "m4a".to_string(),
             ],
+        }
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        // Use library directory by default (same place songs are stored)
+        let download_path = crate::library::storage::get_library_directory().ok();
+
+        Self {
+            youtube_playlist_url: String::new(),
+            spotify_playlist_url: String::new(),
+            download_path,
         }
     }
 }

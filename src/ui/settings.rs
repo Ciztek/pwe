@@ -10,6 +10,8 @@ pub enum SettingsAction {
     SaveConfig,
     ResetConfig,
     RescanLibrary,
+    DownloadYouTubePlaylist,
+    DownloadSpotifyPlaylist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +44,7 @@ pub fn render_settings_panel(
     ui: &mut egui::Ui,
     theme: Theme,
     state: &mut SettingsState,
+    download_state: &crate::app::DownloadState,
 ) -> Option<SettingsAction> {
     let mut action = None;
 
@@ -95,12 +98,18 @@ pub fn render_settings_panel(
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_width(ui.available_width());
 
-            action = match state.current_section {
+            let section_action = match state.current_section {
                 SettingsSection::Audio => render_audio_settings(ui, theme, state),
                 SettingsSection::Display => render_display_settings(ui, theme, state),
                 SettingsSection::Library => render_library_settings(ui, theme, state),
-                SettingsSection::Network => render_network_settings(ui, theme),
+                SettingsSection::Network => {
+                    render_network_settings(ui, theme, state, download_state)
+                },
             };
+
+            if section_action.is_some() {
+                action = section_action;
+            }
         });
     });
 
@@ -533,34 +542,213 @@ fn render_library_settings(
     action
 }
 
-fn render_network_settings(ui: &mut egui::Ui, theme: Theme) -> Option<SettingsAction> {
+fn render_network_settings(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    state: &mut SettingsState,
+    download_state: &crate::app::DownloadState,
+) -> Option<SettingsAction> {
+    let mut action = None;
     ui.add_space(16.0);
 
-    render_settings_card(ui, theme, "ALAYA-LINK CONNECTION", |ui, theme| {
+    // Download progress indicator
+    if download_state.is_downloading {
+        render_settings_card(ui, theme, "DOWNLOAD IN PROGRESS", |ui, theme| {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Downloading: {} / {}",
+                        download_state.current_index, download_state.total_count
+                    ))
+                    .color(theme.accent())
+                    .strong()
+                    .size(14.0),
+                );
+            });
+
+            ui.add_space(8.0);
+
+            if !download_state.current_song.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!("🎵 {}", download_state.current_song))
+                        .color(theme.text_primary())
+                        .size(12.0),
+                );
+            }
+
+            if !download_state.status_message.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(&download_state.status_message)
+                        .color(theme.text_muted())
+                        .size(11.0),
+                );
+            }
+
+            ui.add_space(8.0);
+
+            let progress = if download_state.total_count > 0 {
+                download_state.current_index as f32 / download_state.total_count as f32
+            } else {
+                0.0
+            };
+
+            ui.add(egui::ProgressBar::new(progress).show_percentage());
+        });
+
+        ui.add_space(16.0);
+    }
+
+    render_settings_card(ui, theme, "PLAYLIST DOWNLOAD", |ui, theme| {
         ui.label(
-            egui::RichText::new("Network features coming soon")
-                .color(theme.text_muted())
-                .italics(),
-        );
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("• Online song database")
+            egui::RichText::new("Paste public playlist URLs to download songs")
                 .color(theme.text_muted())
                 .size(12.0),
         );
+        ui.add_space(12.0);
+
+        // YouTube Playlist
         ui.label(
-            egui::RichText::new("• Remote library sync")
-                .color(theme.text_muted())
-                .size(12.0),
+            egui::RichText::new("YouTube Playlist:")
+                .color(theme.primary())
+                .strong(),
         );
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.config.network.youtube_playlist_url)
+                    .desired_width(400.0)
+                    .hint_text("https://www.youtube.com/playlist?list=...")
+                    .interactive(!download_state.is_downloading),
+            );
+
+            let can_download = !state.config.network.youtube_playlist_url.is_empty()
+                && !download_state.is_downloading;
+
+            if ui
+                .add_enabled(
+                    can_download,
+                    egui::Button::new(egui::RichText::new("[ Download ]").color(theme.accent())),
+                )
+                .clicked()
+            {
+                tracing::info!("🔘 YouTube Download button clicked!");
+                action = Some(SettingsAction::DownloadYouTubePlaylist);
+            }
+        });
+
+        ui.add_space(12.0);
+
+        // Spotify Playlist
         ui.label(
-            egui::RichText::new("• Multiplayer karaoke")
+            egui::RichText::new("Spotify Playlist:")
+                .color(theme.primary())
+                .strong(),
+        );
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut state.config.network.spotify_playlist_url)
+                    .desired_width(400.0)
+                    .hint_text("https://open.spotify.com/playlist/...")
+                    .interactive(!download_state.is_downloading),
+            );
+
+            let can_download = !state.config.network.spotify_playlist_url.is_empty()
+                && !download_state.is_downloading;
+            if ui
+                .add_enabled(
+                    can_download,
+                    egui::Button::new(egui::RichText::new("[ Download ]").color(theme.accent())),
+                )
+                .clicked()
+            {
+                action = Some(SettingsAction::DownloadSpotifyPlaylist);
+            }
+        });
+
+        ui.add_space(12.0);
+
+        ui.label(
+            egui::RichText::new("💡 Tip: Public playlists only. No authentication needed!")
                 .color(theme.text_muted())
-                .size(12.0),
+                .size(11.0),
         );
     });
 
-    None
+    ui.add_space(16.0);
+
+    render_settings_card(ui, theme, "DOWNLOAD SETTINGS", |ui, theme| {
+        ui.label(
+            egui::RichText::new("Download Path:")
+                .color(theme.text_muted())
+                .size(12.0),
+        );
+        ui.add_space(4.0);
+
+        let download_path_display = state
+            .config
+            .network
+            .download_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "Not set (will use first library path)".to_string());
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("📁 {}", download_path_display))
+                    .color(theme.text_primary())
+                    .size(11.0),
+            );
+
+            if ui
+                .button(egui::RichText::new("[ Browse ]").color(theme.primary()))
+                .clicked()
+            {
+                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    state.config.network.download_path = Some(path);
+                }
+            }
+        });
+
+        ui.add_space(8.0);
+
+        ui.label(
+            egui::RichText::new("⚠ Requires yt-dlp to be installed")
+                .color(theme.alert())
+                .size(11.0),
+        );
+        ui.label(
+            egui::RichText::new("Install: pip install yt-dlp")
+                .color(theme.text_muted())
+                .size(10.0),
+        );
+    });
+
+    ui.add_space(24.0);
+
+    ui.horizontal(|ui| {
+        if ui
+            .button(egui::RichText::new("[ RESET TO FACTORY ]").color(theme.alert()))
+            .clicked()
+        {
+            action = Some(SettingsAction::ResetConfig);
+        }
+
+        ui.add_space(8.0);
+
+        if ui
+            .button(egui::RichText::new("[ SAVE CONFIG ]").color(theme.primary()))
+            .clicked()
+        {
+            action = Some(SettingsAction::SaveConfig);
+        }
+    });
+
+    action
 }
 
 fn render_settings_card<F>(ui: &mut egui::Ui, theme: Theme, title: &str, content: F)

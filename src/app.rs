@@ -1,6 +1,7 @@
 use eframe::egui;
 use enum_cycling::EnumCycle;
 use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
 use tracing::{error, info, warn};
 
@@ -8,6 +9,7 @@ use crate::audio::{generator, loader, player::AudioPlayer};
 use crate::config::AppConfig;
 use crate::library::{scanner, storage, Song};
 use crate::lrc::{self, LrcEvent};
+use crate::network::downloader::Downloader;
 use crate::ui::{panels, settings::SettingsState, theme::Theme, widgets};
 
 pub struct Audio {
@@ -40,6 +42,47 @@ pub struct Karaoke {
 }
 
 #[derive(Debug, Clone)]
+pub struct DownloadState {
+    pub is_downloading: bool,
+    pub current_index: usize,
+    pub total_count: usize,
+    pub current_song: String,
+    pub status_message: String,
+}
+
+pub struct NetworkState {
+    pub downloader: Downloader,
+    pub download_tx: Option<Sender<DownloadMessage>>,
+    pub download_rx: Option<Receiver<DownloadMessage>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DownloadMessage {
+    Started {
+        total: usize,
+    },
+    Progress {
+        index: usize,
+        song: String,
+        status: String,
+    },
+    Completed,
+    Error(String),
+}
+
+impl Default for DownloadState {
+    fn default() -> Self {
+        Self {
+            is_downloading: false,
+            current_index: 0,
+            total_count: 0,
+            current_song: String::new(),
+            status_message: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LyricLine {
     pub timestamp_ms: u64,
     pub text: String,
@@ -52,6 +95,8 @@ pub struct KaraokeApp {
     audio: Audio,
     library: Library,
     karaoke: Karaoke,
+    download_state: DownloadState,
+    network_state: NetworkState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -460,12 +505,27 @@ impl KaraokeApp {
             warn!("PWE Karaoke initialized without audio support");
         }
 
+        let settings_state = SettingsState::default();
+        let download_path = settings_state
+            .config
+            .network
+            .download_path
+            .clone()
+            .or_else(|| storage::get_library_directory().ok())
+            .unwrap_or_else(|| std::path::PathBuf::from("downloads"));
+
         Self {
-            settings_state: SettingsState::default(),
+            settings_state,
             audio: Audio::new(),
             ui: UI::new(),
             library: Library::new(),
             karaoke: Karaoke::new(),
+            download_state: DownloadState::default(),
+            network_state: NetworkState {
+                downloader: Downloader::new(download_path),
+                download_tx: None,
+                download_rx: None,
+            },
         }
     }
 
@@ -504,6 +564,43 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll download progress channel
+        if let Some(rx) = &self.network_state.download_rx {
+            while let Ok(msg) = rx.try_recv() {
+                match msg {
+                    DownloadMessage::Started { total } => {
+                        self.download_state.total_count = total;
+                        self.download_state.is_downloading = true;
+                        info!("📊 Download started: {} videos", total);
+                    },
+                    DownloadMessage::Progress {
+                        index,
+                        song,
+                        status,
+                    } => {
+                        self.download_state.current_index = index;
+                        self.download_state.current_song = song.clone();
+                        self.download_state.status_message = status;
+                        info!(
+                            "📥 Downloading {}/{}: {}",
+                            index, self.download_state.total_count, song
+                        );
+                    },
+                    DownloadMessage::Completed => {
+                        self.download_state.is_downloading = false;
+                        self.download_state.status_message = "All downloads completed!".to_string();
+                        info!("✅ All downloads completed");
+                    },
+                    DownloadMessage::Error(e) => {
+                        self.download_state.is_downloading = false;
+                        self.download_state.status_message = format!("Error: {}", e);
+                        error!("❌ Download error: {}", e);
+                    },
+                }
+                ctx.request_repaint();
+            }
+        }
+
         if self.audio.is_playing {
             ctx.request_repaint();
             if self.audio.audio_player.is_empty() {
@@ -897,9 +994,12 @@ impl KaraokeApp {
 
     fn render_settings_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(8.0);
-        if let Some(action) =
-            crate::ui::settings::render_settings_panel(ui, self.ui.theme, &mut self.settings_state)
-        {
+        if let Some(action) = crate::ui::settings::render_settings_panel(
+            ui,
+            self.ui.theme,
+            &mut self.settings_state,
+            &self.download_state,
+        ) {
             self.handle_settings_action(action);
         }
     }
@@ -921,17 +1021,191 @@ impl KaraokeApp {
                 info!("Configuration reset to factory defaults");
             },
             SettingsAction::RescanLibrary => {
-                info!("Rescanning library...");
-                let mut all_songs = Vec::new();
-                for path in &self.settings_state.config.library.paths {
-                    let songs = scanner::scan_directory(path);
-                    info!("Found {} songs in {}", songs.len(), path.display());
-                    all_songs.extend(songs);
+                // Use the same refresh logic as the main page
+                self.library.refresh_library();
+            },
+            SettingsAction::DownloadYouTubePlaylist => {
+                let url = self
+                    .settings_state
+                    .config
+                    .network
+                    .youtube_playlist_url
+                    .clone();
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                info!("🎬 YouTube Playlist Download Started");
+                info!("URL: {}", url);
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                if !self.network_state.downloader.is_available() {
+                    error!("❌ yt-dlp is not installed!");
+                    warn!("💡 Install with: pip install yt-dlp");
+                    self.download_state.status_message = "Error: yt-dlp not found".to_string();
+                    return;
                 }
-                // Replace library with newly scanned songs
-                self.library.library = all_songs;
+
+                // Parse playlist URL to extract video IDs
+                if let Some(playlist_id) = Self::extract_youtube_playlist_id(&url) {
+                    info!("📋 Playlist ID: {}", playlist_id);
+                    self.download_state.is_downloading = true;
+                    self.download_state.current_index = 0;
+                    self.download_state.total_count = 0; // Will be updated
+                    self.download_state.current_song = "Extracting playlist info...".to_string();
+                    self.download_state.status_message = "Initializing download...".to_string();
+
+                    // Spawn async download task
+                    self.start_youtube_playlist_download(playlist_id);
+                } else {
+                    error!("❌ Invalid YouTube playlist URL");
+                    self.download_state.status_message = "Error: Invalid playlist URL".to_string();
+                }
+            },
+            SettingsAction::DownloadSpotifyPlaylist => {
+                let url = self
+                    .settings_state
+                    .config
+                    .network
+                    .spotify_playlist_url
+                    .clone();
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                info!("🎵 Spotify Playlist Download Started");
+                info!("URL: {}", url);
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                if !self.network_state.downloader.is_available() {
+                    error!("❌ yt-dlp is not installed!");
+                    warn!("💡 Install with: pip install yt-dlp");
+                    self.download_state.status_message = "Error: yt-dlp not found".to_string();
+                    return;
+                }
+
+                self.download_state.is_downloading = true;
+                self.download_state.current_index = 0;
+                self.download_state.total_count = 0;
+                self.download_state.current_song = "Fetching Spotify playlist...".to_string();
+                self.download_state.status_message = "Initializing...".to_string();
+
+                // Spawn async download task
+                self.start_spotify_playlist_download(url);
             },
         }
+    }
+
+    /// Extract YouTube playlist ID from URL
+    fn extract_youtube_playlist_id(url: &str) -> Option<String> {
+        // Handle URLs like:
+        // - https://www.youtube.com/playlist?list=PLxxxxxx
+        // - https://youtube.com/playlist?list=PLxxxxxx
+        if let Some(start) = url.find("list=") {
+            let id_start = start + 5;
+            let id_end = url[id_start..]
+                .find('&')
+                .map(|pos| id_start + pos)
+                .unwrap_or(url.len());
+            Some(url[id_start..id_end].to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Start YouTube playlist download (simplified synchronous version)
+    fn start_youtube_playlist_download(&mut self, playlist_id: String) {
+        info!("🚀 Starting download for playlist: {}", playlist_id);
+
+        // Create channel for progress updates
+        let (tx, rx) = channel();
+        self.network_state.download_tx = Some(tx.clone());
+        self.network_state.download_rx = Some(rx);
+
+        let url = format!("https://www.youtube.com/playlist?list={}", playlist_id);
+        let downloader = self.network_state.downloader.clone();
+
+        // Spawn background thread for downloads
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async move {
+                // Get playlist videos
+                match downloader.get_playlist_videos(&url).await {
+                    Ok(videos) => {
+                        let total = videos.len();
+                        let _ = tx.send(DownloadMessage::Started { total });
+
+                        for (idx, (video_id, title)) in videos.iter().enumerate() {
+                            let _ = tx.send(DownloadMessage::Progress {
+                                index: idx + 1,
+                                song: title.clone(),
+                                status: "Downloading...".to_string(),
+                            });
+
+                            match downloader.download_youtube_video(video_id).await {
+                                Ok(path) => {
+                                    info!("✅ Downloaded: {}", path.display());
+                                },
+                                Err(e) => {
+                                    error!("❌ Failed to download {}: {}", title, e);
+                                },
+                            }
+                        }
+
+                        let _ = tx.send(DownloadMessage::Completed);
+                    },
+                    Err(e) => {
+                        error!("❌ Failed to fetch playlist: {}", e);
+                        let _ = tx.send(DownloadMessage::Error(e));
+                    },
+                }
+            });
+        });
+    }
+
+    /// Start Spotify playlist download
+    fn start_spotify_playlist_download(&mut self, playlist_url: String) {
+        info!("🚀 Starting Spotify download for: {}", playlist_url);
+
+        // Create channel for progress updates
+        let (tx, rx) = channel();
+        self.network_state.download_tx = Some(tx.clone());
+        self.network_state.download_rx = Some(rx);
+
+        let downloader = self.network_state.downloader.clone();
+
+        // Spawn background thread for downloads
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async move {
+                // Get Spotify playlist tracks
+                match downloader.get_spotify_playlist_tracks(&playlist_url).await {
+                    Ok(tracks) => {
+                        let total = tracks.len();
+                        let _ = tx.send(DownloadMessage::Started { total });
+
+                        for (idx, (title, artist)) in tracks.iter().enumerate() {
+                            let track_info = format!("{} - {}", title, artist);
+                            let _ = tx.send(DownloadMessage::Progress {
+                                index: idx + 1,
+                                song: track_info.clone(),
+                                status: "Searching on YouTube...".to_string(),
+                            });
+
+                            // Download using YouTube search
+                            match downloader.download_spotify_track(title, artist).await {
+                                Ok(path) => {
+                                    info!("✅ Downloaded: {}", path.display());
+                                },
+                                Err(e) => {
+                                    error!("❌ Failed to download {}: {}", track_info, e);
+                                },
+                            }
+                        }
+
+                        let _ = tx.send(DownloadMessage::Completed);
+                    },
+                    Err(e) => {
+                        error!("❌ Failed to fetch Spotify playlist: {}", e);
+                        let _ = tx.send(DownloadMessage::Error(e));
+                    },
+                }
+            });
+        });
     }
 }
 

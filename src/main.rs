@@ -3,6 +3,7 @@ mod audio;
 mod config;
 mod library;
 mod lrc;
+mod network;
 mod ui;
 
 use app::KaraokeApp;
