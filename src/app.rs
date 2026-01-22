@@ -11,6 +11,13 @@ use crate::library::{scanner, storage, Song};
 use crate::lrc::{self, LrcEvent};
 use crate::network::downloader::Downloader;
 use crate::ui::{panels, settings::SettingsState, theme::Theme, widgets};
+use std::collections::HashMap;
+
+#[derive(Default)]
+pub struct AppState {
+    pub song_pagination: usize,
+    pub thumbnail_texture_cache: HashMap<PathBuf, egui::TextureHandle>,
+}
 
 pub struct Audio {
     audio_player: AudioPlayer,
@@ -32,7 +39,6 @@ pub struct Library {
     metadata: storage::LibraryMetadata,
     library_dir: Option<PathBuf>,
     add_song_path_input: String,
-    current_page: usize,
 }
 
 pub struct Karaoke {
@@ -90,7 +96,7 @@ pub struct LyricLine {
 
 pub struct KaraokeApp {
     settings_state: SettingsState,
-
+    app_state: AppState,
     ui: UI,
     audio: Audio,
     library: Library,
@@ -231,7 +237,6 @@ impl Library {
             metadata,
             library_dir: library_dir.clone(),
             add_song_path_input: String::new(),
-            current_page: 0,
         };
 
         // Scan the library directory on startup
@@ -515,6 +520,7 @@ impl KaraokeApp {
             .unwrap_or_else(|| std::path::PathBuf::from("downloads"));
 
         Self {
+            app_state: AppState::default(),
             settings_state,
             audio: Audio::new(),
             ui: UI::new(),
@@ -804,17 +810,15 @@ impl KaraokeApp {
                 ui.set_min_width(ui.available_width());
                 ui.set_max_height(ui.available_height());
 
-                let (library_action, new_page) = widgets::render_library_section(
+                let library_action = widgets::render_library_section(
                     ui,
                     &self.library.library,
                     self.library.library_path.as_deref(),
                     &mut self.library.library_filter,
                     &mut self.library.add_song_path_input,
-                    self.library.current_page,
+                    &mut self.app_state,
                     self.ui.theme,
                 );
-
-                self.library.current_page = new_page;
 
                 match library_action {
                     widgets::LibraryAction::PlaySong(path) => {

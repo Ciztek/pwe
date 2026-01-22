@@ -1,4 +1,5 @@
 use super::theme::Theme;
+use crate::app::AppState;
 use crate::library::Song;
 use eframe::egui;
 use std::path::Path;
@@ -165,11 +166,11 @@ pub fn render_library_section(
     _library_path: Option<&Path>,
     filter: &mut str,
     add_song_path_input: &mut String,
-    current_page: usize,
+    app_state: &mut AppState,
     theme: Theme,
-) -> (LibraryAction, usize) {
+) -> LibraryAction {
     let mut action = LibraryAction::None;
-    let mut page = current_page;
+    let mut page = app_state.song_pagination;
 
     render_armor_card(ui, theme, |ui| {
         ui.horizontal(|ui| {
@@ -438,29 +439,45 @@ pub fn render_library_section(
                                 ui.add_space(8.0);
 
                                 // Album art thumbnail if available
-                                if let Some(metadata) = &song.metadata {
+                                let size = 32.0;
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(size, size),
+                                    egui::Sense::hover(),
+                                );
+
+                                if let Some(texture) =
+                                    app_state.thumbnail_texture_cache.get(&song.path)
+                                {
+                                    ui.painter().image(
+                                        texture.id(),
+                                        rect,
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        egui::Color32::WHITE,
+                                    );
+                                } else if let Some(metadata) = &song.metadata {
                                     if let Some(cover_art) = &metadata.cover_art {
                                         if let Ok(image) = image::load_from_memory(cover_art) {
-                                            let size = 32.0;
                                             let rgba_image = image.to_rgba8();
-                                            let pixels = rgba_image.as_flat_samples();
                                             let color_image =
                                                 egui::ColorImage::from_rgba_unmultiplied(
                                                     [
                                                         rgba_image.width() as _,
                                                         rgba_image.height() as _,
                                                     ],
-                                                    pixels.as_slice(),
+                                                    rgba_image.as_raw(),
                                                 );
                                             let texture = ui.ctx().load_texture(
                                                 format!("album_art_{}", song.path.display()),
                                                 color_image,
                                                 egui::TextureOptions::LINEAR,
                                             );
-                                            let (rect, _) = ui.allocate_exact_size(
-                                                egui::vec2(size, size),
-                                                egui::Sense::hover(),
-                                            );
+                                            app_state
+                                                .thumbnail_texture_cache
+                                                .insert(song.path.clone(), texture.clone());
+
                                             ui.painter().image(
                                                 texture.id(),
                                                 rect,
@@ -470,11 +487,9 @@ pub fn render_library_section(
                                                 ),
                                                 egui::Color32::WHITE,
                                             );
-                                            ui.add_space(8.0);
                                         }
                                     }
                                 }
-
                                 ui.vertical(|ui| {
                                     // Song title
                                     let song_label = ui.add(
@@ -655,8 +670,8 @@ pub fn render_library_section(
                 }
             });
     }
-
-    (action, page)
+    app_state.song_pagination = page;
+    action
 }
 
 #[allow(dead_code)]
