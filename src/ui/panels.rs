@@ -4,7 +4,7 @@ use crate::library::Song;
 use eframe::egui;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 pub enum PlaybackAction {
     None,
@@ -12,6 +12,7 @@ pub enum PlaybackAction {
     Stop,
     SkipForward,
     SkipBackward,
+    Seek(f32), // Seek to position as ratio (0.0 to 1.0)
 }
 
 pub fn render_top_panel(
@@ -146,13 +147,16 @@ pub fn render_bottom_panel(
                                 );
                                 let (rect, _) = ui.allocate_exact_size(
                                     egui::vec2(size, size),
-                                    egui::Sense::hover()
+                                    egui::Sense::hover(),
                                 );
                                 ui.painter().image(
                                     texture.id(),
                                     rect,
-                                    egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                    egui::Color32::WHITE
+                                    egui::Rect::from_min_max(
+                                        egui::pos2(0.0, 0.0),
+                                        egui::pos2(1.0, 1.0),
+                                    ),
+                                    egui::Color32::WHITE,
                                 );
                             } else {
                                 ui.painter().rect_filled(
@@ -221,7 +225,7 @@ pub fn render_bottom_panel(
                         .button(egui::RichText::new(">>").color(theme.text_muted()))
                         .clicked()
                     {
-                        tracing::info!("Skip forward - to be implemented");
+                        action = PlaybackAction::SkipForward;
                     }
 
                     ui.add_space(4.0);
@@ -244,7 +248,7 @@ pub fn render_bottom_panel(
                         .button(egui::RichText::new("<<").color(theme.text_muted()))
                         .clicked()
                     {
-                        tracing::info!("Skip backward - to be implemented");
+                        action = PlaybackAction::SkipBackward;
                     }
                 });
             });
@@ -277,9 +281,20 @@ pub fn render_bottom_panel(
 
                 let bar_width = ui.available_width() - 80.0;
                 let bar_height = 8.0;
-                let (rect, _response) =
-                    ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(bar_width, bar_height),
+                    egui::Sense::click_and_drag(),
+                );
 
+                // Handle seeking interaction
+                if response.clicked() || response.dragged() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        let ratio = ((pos.x - rect.min.x) / bar_width).clamp(0.0, 1.0);
+                        action = PlaybackAction::Seek(ratio);
+                    }
+                }
+
+                // Draw progress bar background
                 ui.painter().rect_filled(rect, 2.0, theme.secondary());
 
                 if progress > 0.0 {

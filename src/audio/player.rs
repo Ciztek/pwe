@@ -70,6 +70,15 @@ impl AudioPlayer {
         }
     }
 
+    /// Sets the playback position. Note: This only updates the timing tracker.
+    /// Actual audio seeking requires reloading the file and skipping to position.
+    pub fn set_position(&mut self, position: Duration) {
+        self.accumulated_time = position;
+        if self.pause_time.is_none() {
+            self.start_time = Some(Instant::now());
+        }
+    }
+
     pub fn reset_position(&mut self) {
         self.start_time = None;
         self.pause_time = None;

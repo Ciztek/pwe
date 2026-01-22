@@ -221,13 +221,16 @@ pub fn render_library_section(
                                     );
                                     let (rect, _) = ui.allocate_exact_size(
                                         egui::vec2(size, size),
-                                        egui::Sense::hover()
+                                        egui::Sense::hover(),
                                     );
                                     ui.painter().image(
                                         texture.id(),
                                         rect,
-                                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                        egui::Color32::WHITE
+                                        egui::Rect::from_min_max(
+                                            egui::pos2(0.0, 0.0),
+                                            egui::pos2(1.0, 1.0),
+                                        ),
+                                        egui::Color32::WHITE,
                                     );
                                     ui.add_space(8.0);
                                 }
@@ -442,13 +445,16 @@ pub fn render_library_section(
                                             );
                                             let (rect, _) = ui.allocate_exact_size(
                                                 egui::vec2(size, size),
-                                                egui::Sense::hover()
+                                                egui::Sense::hover(),
                                             );
                                             ui.painter().image(
                                                 texture.id(),
                                                 rect,
-                                                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                                                egui::Color32::WHITE
+                                                egui::Rect::from_min_max(
+                                                    egui::pos2(0.0, 0.0),
+                                                    egui::pos2(1.0, 1.0),
+                                                ),
+                                                egui::Color32::WHITE,
                                             );
                                             ui.add_space(8.0);
                                         }

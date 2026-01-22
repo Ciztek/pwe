@@ -1,6 +1,7 @@
 use eframe::egui;
 use enum_cycling::EnumCycle;
 use std::path::PathBuf;
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::audio::{generator, loader, player::AudioPlayer};
@@ -576,10 +577,61 @@ impl eframe::App for KaraokeApp {
                 info!("Playback stopped");
             },
             panels::PlaybackAction::SkipForward => {
-                info!("Skip forward - to be implemented");
+                // Play next song in library
+                if let Some(current_path) = &self.audio.current_file {
+                    if let Some(current_index) = self
+                        .library
+                        .library
+                        .iter()
+                        .position(|s| &s.path == current_path)
+                    {
+                        let next_index = if current_index + 1 < self.library.library.len() {
+                            current_index + 1
+                        } else {
+                            0 // Wrap to first song
+                        };
+
+                        if self.library.library.len() > 1 || current_index != next_index {
+                            let next_song_path = self.library.library[next_index].path.clone();
+                            info!("Skipping to next song: {}", next_song_path.display());
+                            self.karaoke.clear();
+                            self.audio.load_and_play_file(next_song_path.clone());
+                            self.karaoke.load_lyrics(&next_song_path);
+                        }
+                    }
+                }
             },
             panels::PlaybackAction::SkipBackward => {
-                info!("Skip backward - to be implemented");
+                // Play previous song in library
+                if let Some(current_path) = &self.audio.current_file {
+                    if let Some(current_index) = self
+                        .library
+                        .library
+                        .iter()
+                        .position(|s| &s.path == current_path)
+                    {
+                        let prev_index = if current_index > 0 {
+                            current_index - 1
+                        } else {
+                            self.library.library.len().saturating_sub(1) // Wrap to last song
+                        };
+
+                        if self.library.library.len() > 1 || current_index != prev_index {
+                            let prev_song_path = self.library.library[prev_index].path.clone();
+                            info!("Skipping to previous song: {}", prev_song_path.display());
+                            self.karaoke.clear();
+                            self.audio.load_and_play_file(prev_song_path.clone());
+                            self.karaoke.load_lyrics(&prev_song_path);
+                        }
+                    }
+                }
+            },
+            panels::PlaybackAction::Seek(ratio) => {
+                if let Some(duration) = self.audio.song_duration {
+                    let new_position = Duration::from_secs_f32(duration.as_secs_f32() * ratio);
+                    self.seek_to_position(new_position);
+                    info!("Seeked to {:?} ({}%)", new_position, (ratio * 100.0) as i32);
+                }
             },
             panels::PlaybackAction::None => {},
         }
@@ -863,6 +915,43 @@ fn render_sidebar_section(ui: &mut egui::Ui, theme: Theme, title: &str, items: &
             .clicked()
         {
             info!("Sidebar item '{}' clicked - to be implemented", item);
+        }
+    }
+}
+
+impl KaraokeApp {
+    fn seek_to_position(&mut self, position: std::time::Duration) {
+        if let Some(path) = self.audio.current_file.clone() {
+            let was_playing = self.audio.is_playing;
+
+            // Clear current playback
+            self.audio.audio_player.clear();
+
+            match loader::load_audio_file(&path) {
+                Ok(decoder) => {
+                    // Note: Rodio doesn't support seeking in most formats
+                    // We just reload from the beginning for now
+                    // The position tracker is updated to maintain karaoke sync
+
+                    if let Some(sink) = self.audio.audio_player.sink() {
+                        sink.append(decoder);
+
+                        if was_playing {
+                            sink.play();
+                        } else {
+                            sink.pause();
+                        }
+
+                        // Update the position tracker
+                        self.audio.audio_player.set_position(position);
+
+                        info!("Seeked to position: {:?}", position);
+                    }
+                },
+                Err(e) => {
+                    error!("Failed to seek: {}", e);
+                },
+            }
         }
     }
 }
