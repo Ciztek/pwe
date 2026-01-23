@@ -2,6 +2,7 @@ mod library;
 mod song;
 
 use eframe::egui;
+use library::Library;
 use std::time::Instant;
 
 struct KaraokeApp {
@@ -55,47 +56,6 @@ impl eframe::App for KaraokeApp {
     }
 }
 
-fn test_metadata() {
-    use std::fs::File;
-    use std::io::{self, Write};
-    use std::path::Path;
-    while (true) {
-        print!("Enter a file or directory path: ");
-        io::stdout().flush().unwrap(); // Ensure prompt is printed before input
-
-        let mut input = String::new();
-        if let Err(e) = io::stdin().read_line(&mut input) {
-            eprintln!("Error reading input: {}", e);
-            return;
-        }
-
-        // Trim whitespace and newline characters
-        let trimmed = input.trim();
-
-        // Validate empty input
-        if trimmed.is_empty() {
-            eprintln!("No path provided.");
-            return;
-        }
-
-        let path = Path::new(trimmed);
-
-        // Check if the path exists
-        if !path.exists() || !path.is_file() {
-            println!("Path does not exist or is not a file: {}", trimmed);
-            return;
-        }
-        match song::metadata::extract_metadata(path) {
-            Ok(metadata) => {
-                println!("Extracted Metadata: {:#?}", metadata);
-            },
-            Err(e) => {
-                eprintln!("Error extracting metadata: {}", e);
-            },
-        }
-    }
-}
-
 fn main() -> eframe::Result<()> {
     tracing_subscriber::fmt::init();
 
@@ -107,7 +67,18 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    test_metadata();
+    let lib = Library::try_new().and_then(|mut library| library.try_scan());
+    match lib {
+        Ok(library) => {
+            tracing::info!(
+                "Library scanned successfully with {} songs.",
+                library.songs().len()
+            );
+        },
+        Err(e) => {
+            tracing::error!("Failed to initialize library: {:?}", e);
+        },
+    }
 
     eframe::run_native(
         "PWE Karaoke",
