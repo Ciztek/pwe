@@ -46,6 +46,7 @@ config.json
 logs/
 dev_library/
 library/
+!*/library
 
 # Temporary files
 *.tmp

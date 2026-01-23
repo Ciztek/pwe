@@ -17,6 +17,10 @@ category = "Music"
 short_description = "Desktop karaoke application"
 long_description = "Desktop karaoke application with audio playback, library management, and vocal separation capabilities."
 
+[[bin]]
+name = "pwe-karaoke-v2"
+path = "v2/main.rs"
+
 [dependencies]
 # GUI Framework - Using eframe (egui) for desktop UI
 eframe = "0.29"
