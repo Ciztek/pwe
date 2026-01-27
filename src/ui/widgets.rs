@@ -445,6 +445,44 @@ pub fn render_library_section(
                                     egui::Sense::hover(),
                                 );
 
+                                // Check cache first to avoid expensive image loading
+                                if !app_state.thumbnail_texture_cache.contains_key(&song.path) {
+                                    // Limit texture loading to 2 per frame to avoid lag spikes
+                                    if app_state.textures_loaded_this_frame < 2 {
+                                        // Texture not in cache yet - load it (only once)
+                                        if let Some(metadata) = &song.metadata {
+                                            if let Some(cover_art) = &metadata.cover_art {
+                                                if let Ok(image) =
+                                                    image::load_from_memory(cover_art)
+                                                {
+                                                    let rgba_image = image.to_rgba8();
+                                                    let color_image =
+                                                        egui::ColorImage::from_rgba_unmultiplied(
+                                                            [
+                                                                rgba_image.width() as _,
+                                                                rgba_image.height() as _,
+                                                            ],
+                                                            rgba_image.as_raw(),
+                                                        );
+                                                    let texture = ui.ctx().load_texture(
+                                                        format!(
+                                                            "album_art_{}",
+                                                            song.path.display()
+                                                        ),
+                                                        color_image,
+                                                        egui::TextureOptions::LINEAR,
+                                                    );
+                                                    app_state
+                                                        .thumbnail_texture_cache
+                                                        .insert(song.path.clone(), texture);
+                                                    app_state.textures_loaded_this_frame += 1;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Now render the texture if it exists in cache
                                 if let Some(texture) =
                                     app_state.thumbnail_texture_cache.get(&song.path)
                                 {
@@ -457,38 +495,6 @@ pub fn render_library_section(
                                         ),
                                         egui::Color32::WHITE,
                                     );
-                                } else if let Some(metadata) = &song.metadata {
-                                    if let Some(cover_art) = &metadata.cover_art {
-                                        if let Ok(image) = image::load_from_memory(cover_art) {
-                                            let rgba_image = image.to_rgba8();
-                                            let color_image =
-                                                egui::ColorImage::from_rgba_unmultiplied(
-                                                    [
-                                                        rgba_image.width() as _,
-                                                        rgba_image.height() as _,
-                                                    ],
-                                                    rgba_image.as_raw(),
-                                                );
-                                            let texture = ui.ctx().load_texture(
-                                                format!("album_art_{}", song.path.display()),
-                                                color_image,
-                                                egui::TextureOptions::LINEAR,
-                                            );
-                                            app_state
-                                                .thumbnail_texture_cache
-                                                .insert(song.path.clone(), texture.clone());
-
-                                            ui.painter().image(
-                                                texture.id(),
-                                                rect,
-                                                egui::Rect::from_min_max(
-                                                    egui::pos2(0.0, 0.0),
-                                                    egui::pos2(1.0, 1.0),
-                                                ),
-                                                egui::Color32::WHITE,
-                                            );
-                                        }
-                                    }
                                 }
                                 ui.vertical(|ui| {
                                     // Song title

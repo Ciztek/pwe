@@ -19,6 +19,7 @@ pub struct AppState {
     pub thumbnail_texture_cache: HashMap<PathBuf, egui::TextureHandle>,
     pub fps_smooth: f32,
     pub last_frame_time: Option<std::time::Instant>,
+    pub textures_loaded_this_frame: usize,
 }
 
 pub struct Audio {
@@ -572,6 +573,9 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Reset per-frame counters
+        self.app_state.textures_loaded_this_frame = 0;
+
         // Calculate FPS
         let now = std::time::Instant::now();
         if let Some(last_time) = self.app_state.last_frame_time {
@@ -626,9 +630,11 @@ impl eframe::App for KaraokeApp {
         }
 
         if self.audio.is_playing {
-            ctx.request_repaint();
             if self.audio.audio_player.is_empty() {
                 self.audio.is_playing = false;
+            } else {
+                // Request repaint at reduced rate (20 FPS is enough for smooth lyrics/progress)
+                ctx.request_repaint_after(Duration::from_millis(50));
             }
         }
 
