@@ -65,6 +65,10 @@ image = "0.25"
 # Path handling
 walkdir = "2.5"
 
+# Watcher
+notify = "6"
+crossbeam-channel = "0.5"
+
 # utilities
 dirs = "5.0"
 enum_cycling = "0.1"
