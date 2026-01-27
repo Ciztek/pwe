@@ -13,6 +13,7 @@ pub struct Song {
     pub extension: String,
     pub has_lyrics: bool,
     pub metadata: Option<AudioMetadata>,
+    pub is_favorite: bool,
 }
 
 impl Song {
@@ -48,6 +49,7 @@ impl Song {
             extension,
             has_lyrics,
             metadata,
+            is_favorite: false,
         })
     }
 

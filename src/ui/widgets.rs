@@ -162,7 +162,7 @@ pub fn render_file_playback_section(
 
 pub fn render_library_section(
     ui: &mut egui::Ui,
-    library: &[Song],
+    library: &[&Song],
     _library_path: Option<&Path>,
     filter: &mut str,
     add_song_path_input: &mut String,
@@ -383,11 +383,12 @@ pub fn render_library_section(
 
     if !library.is_empty() {
         let filtered_songs: Vec<&Song> = if filter.is_empty() {
-            library.iter().collect()
+            library.iter().copied().collect()
         } else {
             let filter_lower = filter.to_lowercase();
             library
                 .iter()
+                .copied()
                 .filter(|song| {
                     // Search in filename
                     song.name.to_lowercase().contains(&filter_lower)
@@ -545,6 +546,28 @@ pub fn render_library_section(
 
                                         ui.add_space(8.0);
 
+                                        // Favorite button
+                                        let fav_icon = if song.is_favorite { "★" } else { "☆" };
+                                        let fav_color = if song.is_favorite {
+                                            theme.accent()
+                                        } else {
+                                            theme.text_muted()
+                                        };
+
+                                        if ui
+                                            .button(
+                                                egui::RichText::new(fav_icon)
+                                                    .size(16.0)
+                                                    .color(fav_color),
+                                            )
+                                            .clicked()
+                                        {
+                                            action =
+                                                LibraryAction::ToggleFavorite(song.path.clone());
+                                        }
+
+                                        ui.add_space(8.0);
+
                                         // Show lyrics indicator
                                         let lyrics_icon =
                                             if song.has_lyrics { "🎤" } else { "♪" };
@@ -698,4 +721,5 @@ pub enum LibraryAction {
     AddSongFromPath,
     RemoveSong(std::path::PathBuf),
     RefreshLibrary,
+    ToggleFavorite(std::path::PathBuf),
 }

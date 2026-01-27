@@ -39,9 +39,18 @@ pub struct Library {
     library: Vec<Song>,
     library_path: Option<PathBuf>,
     library_filter: String,
+    library_view_filter: LibraryViewFilter,
     metadata: storage::LibraryMetadata,
     library_dir: Option<PathBuf>,
     add_song_path_input: String,
+    play_history: Vec<PathBuf>, // Last 10 played songs
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryViewFilter {
+    AllSongs,
+    Favorites,
+    History,
 }
 
 pub struct Karaoke {
@@ -233,13 +242,24 @@ impl Library {
             }
         }
 
+        // Load play history from config
+        let config = crate::config::AppConfig::load();
+        let play_history: Vec<PathBuf> = config
+            .library
+            .play_history
+            .iter()
+            .map(|s| PathBuf::from(s))
+            .collect();
+
         let mut lib = Self {
             library: Vec::new(),
             library_path: None,
             library_filter: String::new(),
+            library_view_filter: LibraryViewFilter::AllSongs,
             metadata,
             library_dir: library_dir.clone(),
             add_song_path_input: String::new(),
+            play_history,
         };
 
         // Scan the library directory on startup
@@ -254,6 +274,21 @@ impl Library {
     fn load_library_from_storage(&mut self, library_dir: &PathBuf) {
         info!("Loading library from storage: {}", library_dir.display());
         self.library = scanner::scan_directory(library_dir);
+
+        // Apply favorite status from metadata
+        for song in &mut self.library {
+            if let Some(filename) = song.path.file_name().and_then(|n| n.to_str()) {
+                if let Some(entry) = self
+                    .metadata
+                    .entries
+                    .iter()
+                    .find(|e| e.stored_filename == filename)
+                {
+                    song.is_favorite = entry.is_favorite;
+                }
+            }
+        }
+
         self.library_path = Some(library_dir.clone());
         info!("Library loaded with {} songs", self.library.len());
 
@@ -301,6 +336,7 @@ impl Library {
                     stored_filename: stored_filename.clone(),
                     title,
                     added_date: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    is_favorite: false,
                 };
 
                 self.metadata.add_entry(entry);
@@ -343,6 +379,57 @@ impl Library {
 
             info!("Removed {} from library", entry.title);
         }
+    }
+
+    /// Toggles favorite status for a song
+    fn toggle_favorite(&mut self, path: &PathBuf) {
+        // Find and toggle the song in library
+        if let Some(song) = self.library.iter_mut().find(|s| &s.path == path) {
+            song.is_favorite = !song.is_favorite;
+
+            // Update metadata
+            let stored_filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if let Some(entry) = self
+                .metadata
+                .entries
+                .iter_mut()
+                .find(|e| e.stored_filename == stored_filename)
+            {
+                entry.is_favorite = song.is_favorite;
+
+                // Save metadata
+                if let Err(e) = storage::save_library_metadata(&self.metadata) {
+                    error!("Failed to save library metadata: {}", e);
+                } else {
+                    let status = if song.is_favorite {
+                        "favorited"
+                    } else {
+                        "unfavorited"
+                    };
+                    info!("Song {} {}", song.display_title(), status);
+                }
+            }
+        }
+    }
+
+    /// Adds a song to play history (most recent first, max 10)
+    fn add_to_history(&mut self, path: &PathBuf) {
+        // Remove if already in history
+        self.play_history.retain(|p| p != path);
+
+        // Add to front
+        self.play_history.insert(0, path.clone());
+
+        // Keep only last 10
+        if self.play_history.len() > 10 {
+            self.play_history.truncate(10);
+        }
+
+        info!(
+            "Added to history: {} (history size: {})",
+            path.display(),
+            self.play_history.len()
+        );
     }
 
     /// Opens a file dialog to add a song to the library
@@ -806,12 +893,20 @@ impl KaraokeApp {
 
                 ui.add_space(16.0);
 
-                render_sidebar_section(
+                let library_view_changed = render_sidebar_section(
                     ui,
                     self.ui.theme,
                     "MY LIBRARY",
                     &["All Songs", "Favorites", "History"],
+                    &mut self.library.library_view_filter,
                 );
+
+                if library_view_changed {
+                    info!(
+                        "Library view changed to: {:?}",
+                        self.library.library_view_filter
+                    );
+                }
 
                 ui.add_space(16.0);
 
@@ -838,9 +933,38 @@ impl KaraokeApp {
                 ui.set_min_width(ui.available_width());
                 ui.set_max_height(ui.available_height());
 
+                // Filter library based on current view
+                let filtered_library: Vec<Song> = match self.library.library_view_filter {
+                    LibraryViewFilter::AllSongs => self.library.library.clone(),
+                    LibraryViewFilter::Favorites => self
+                        .library
+                        .library
+                        .iter()
+                        .filter(|s| s.is_favorite)
+                        .cloned()
+                        .collect(),
+                    LibraryViewFilter::History => {
+                        // Show songs from play history in order (most recent first)
+                        let mut history_songs = Vec::new();
+                        for history_path in &self.library.play_history {
+                            if let Some(song) = self
+                                .library
+                                .library
+                                .iter()
+                                .find(|s| &s.path == history_path)
+                            {
+                                history_songs.push(song.clone());
+                            }
+                        }
+                        history_songs
+                    },
+                };
+
+                let filtered_refs: Vec<&Song> = filtered_library.iter().collect();
+
                 let library_action = widgets::render_library_section(
                     ui,
-                    &self.library.library,
+                    &filtered_refs,
                     self.library.library_path.as_deref(),
                     &mut self.library.library_filter,
                     &mut self.library.add_song_path_input,
@@ -850,6 +974,20 @@ impl KaraokeApp {
 
                 match library_action {
                     widgets::LibraryAction::PlaySong(path) => {
+                        // Add to play history
+                        self.library.add_to_history(&path);
+
+                        // Save history to config
+                        self.settings_state.config.library.play_history = self
+                            .library
+                            .play_history
+                            .iter()
+                            .filter_map(|p| p.to_str().map(String::from))
+                            .collect();
+                        if let Err(e) = self.settings_state.config.save() {
+                            error!("Failed to save config with play history: {}", e);
+                        }
+
                         // Clear old lyrics first
                         self.karaoke.clear();
                         // Load and play the audio file
@@ -873,6 +1011,9 @@ impl KaraokeApp {
                     },
                     widgets::LibraryAction::RefreshLibrary => {
                         self.library.refresh_library();
+                    },
+                    widgets::LibraryAction::ToggleFavorite(path) => {
+                        self.library.toggle_favorite(&path);
                     },
                     widgets::LibraryAction::None => {},
                 }
@@ -1241,7 +1382,15 @@ impl KaraokeApp {
     }
 }
 
-fn render_sidebar_section(ui: &mut egui::Ui, theme: Theme, title: &str, items: &[&str]) {
+fn render_sidebar_section(
+    ui: &mut egui::Ui,
+    theme: Theme,
+    title: &str,
+    items: &[&str],
+    current_filter: &mut LibraryViewFilter,
+) -> bool {
+    let mut changed = false;
+
     ui.label(
         egui::RichText::new(title)
             .color(theme.text_muted())
@@ -1251,18 +1400,37 @@ fn render_sidebar_section(ui: &mut egui::Ui, theme: Theme, title: &str, items: &
 
     ui.add_space(8.0);
 
-    for item in items {
+    for (idx, item) in items.iter().enumerate() {
+        let filter = match idx {
+            0 => LibraryViewFilter::AllSongs,
+            1 => LibraryViewFilter::Favorites,
+            2 => LibraryViewFilter::History,
+            _ => LibraryViewFilter::AllSongs,
+        };
+
+        let is_active = *current_filter == filter;
+        let text_color = if is_active {
+            theme.primary()
+        } else {
+            theme.text_muted()
+        };
+
+        let prefix = if is_active { "[ > ] " } else { "[   ] " };
+
         if ui
             .button(
-                egui::RichText::new(format!("> {}", item))
-                    .color(theme.text_muted())
+                egui::RichText::new(format!("{}{}", prefix, item))
+                    .color(text_color)
                     .size(12.0),
             )
             .clicked()
         {
-            info!("Sidebar item '{}' clicked - to be implemented", item);
+            *current_filter = filter;
+            changed = true;
         }
     }
+
+    changed
 }
 
 impl KaraokeApp {

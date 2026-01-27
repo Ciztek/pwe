@@ -10,6 +10,8 @@ pub struct LibraryEntry {
     pub stored_filename: String,
     pub title: String,
     pub added_date: String,
+    #[serde(default)]
+    pub is_favorite: bool,
 }
 
 /// Manages the persistent library storage
@@ -274,6 +276,7 @@ pub fn sync_library(metadata: &mut LibraryMetadata) -> Result<bool> {
                     stored_filename: filename.to_string(),
                     title,
                     added_date: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                    is_favorite: false,
                 };
 
                 metadata.entries.push(entry);

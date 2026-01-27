@@ -32,6 +32,8 @@ pub struct LibraryConfig {
     pub paths: Vec<PathBuf>,
     pub auto_scan: bool,
     pub file_types: Vec<String>,
+    #[serde(default)]
+    pub play_history: Vec<String>, // Store file paths of last played songs
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +88,7 @@ impl Default for LibraryConfig {
                 "wav".to_string(),
                 "m4a".to_string(),
             ],
+            play_history: Vec::new(),
         }
     }
 }
