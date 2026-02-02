@@ -19,8 +19,15 @@ That's it! The script will:
 
 ### WiX Toolset (Required)
 
-Download and install WiX Toolset 3.14 from:
+Download and install WiX Toolset from:
 <https://wixtoolset.org/releases/>
+
+Supported versions:
+
+- **WiX Toolset 4.x or later** (recommended - uses `wix` command)
+- **WiX Toolset 3.11 - 3.14** (legacy - uses `candle.exe` and `light.exe`)
+
+The build script automatically detects which version you have installed.
 
 ### Rust Toolchain (Optional - script can install)
 
@@ -78,7 +85,8 @@ msiexec /i "target\release\bundle\msi\pwe-karaoke_0.1.0_x64_en-US.msi" /qn
 
 - Download and install from <https://wixtoolset.org/releases/>
 - Restart PowerShell after installation
-- Ensure `candle.exe` and `light.exe` are in your PATH
+- For WiX 4+: Ensure `wix` command is in your PATH
+- For WiX 3.x: Ensure `candle.exe` and `light.exe` are in your PATH
 
 ### "Rust toolchain not found"
 

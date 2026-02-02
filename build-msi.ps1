@@ -175,40 +175,61 @@ if (-not $RustInstalled) {
 Write-Step "Checking for WiX Toolset..."
 
 $WixInstalled = $false
+$WixVersion = $null
 $CandlePath = $null
 $LightPath = $null
+$WixCommand = $null
 
-# Check for WiX Toolset
-$PossibleWixPaths = @(
-    "C:\Program Files (x86)\WiX Toolset v3.14\bin",
-    "C:\Program Files (x86)\WiX Toolset v3.13\bin",
-    "C:\Program Files (x86)\WiX Toolset v3.11\bin",
-    "C:\Program Files\WiX Toolset v3.14\bin"
-)
-
-foreach ($Path in $PossibleWixPaths) {
-    $TestCandle = Join-Path $Path "candle.exe"
-    $TestLight = Join-Path $Path "light.exe"
-
-    if ((Test-Path $TestCandle) -and (Test-Path $TestLight)) {
-        $CandlePath = $TestCandle
-        $LightPath = $TestLight
-        $WixInstalled = $true
-        Write-Success "Found WiX Toolset at: $Path"
-        break
+# First, check for WiX 4+ (wix command)
+$WixInPath = Get-Command wix -ErrorAction SilentlyContinue
+if ($WixInPath) {
+    $WixCommand = $WixInPath.Source
+    $WixInstalled = $true
+    $WixVersion = "4+"
+    try {
+        $VersionOutput = & wix --version 2>&1
+        Write-Success "Found WiX Toolset: $VersionOutput"
+    }
+    catch {
+        Write-Success "Found WiX Toolset 4+ (wix command)"
     }
 }
 
-# Try PATH
+# If not found, check for WiX 3.x (candle/light)
 if (-not $WixInstalled) {
-    $CandleInPath = Get-Command candle.exe -ErrorAction SilentlyContinue
-    $LightInPath = Get-Command light.exe -ErrorAction SilentlyContinue
+    $PossibleWixPaths = @(
+        "C:\Program Files (x86)\WiX Toolset v3.14\bin",
+        "C:\Program Files (x86)\WiX Toolset v3.13\bin",
+        "C:\Program Files (x86)\WiX Toolset v3.11\bin",
+        "C:\Program Files\WiX Toolset v3.14\bin"
+    )
 
-    if ($CandleInPath -and $LightInPath) {
-        $CandlePath = $CandleInPath.Source
-        $LightPath = $LightInPath.Source
-        $WixInstalled = $true
-        Write-Success "Found WiX Toolset in PATH"
+    foreach ($Path in $PossibleWixPaths) {
+        $TestCandle = Join-Path $Path "candle.exe"
+        $TestLight = Join-Path $Path "light.exe"
+
+        if ((Test-Path $TestCandle) -and (Test-Path $TestLight)) {
+            $CandlePath = $TestCandle
+            $LightPath = $TestLight
+            $WixInstalled = $true
+            $WixVersion = "3.x"
+            Write-Success "Found WiX Toolset 3.x at: $Path"
+            break
+        }
+    }
+
+    # Try PATH for WiX 3.x
+    if (-not $WixInstalled) {
+        $CandleInPath = Get-Command candle.exe -ErrorAction SilentlyContinue
+        $LightInPath = Get-Command light.exe -ErrorAction SilentlyContinue
+
+        if ($CandleInPath -and $LightInPath) {
+            $CandlePath = $CandleInPath.Source
+            $LightPath = $LightInPath.Source
+            $WixInstalled = $true
+            $WixVersion = "3.x"
+            Write-Success "Found WiX Toolset 3.x in PATH"
+        }
     }
 }
 
@@ -301,51 +322,78 @@ $WixObjDir = "target\wix"
 New-Item -ItemType Directory -Force -Path $MsiOutputDir | Out-Null
 New-Item -ItemType Directory -Force -Path $WixObjDir | Out-Null
 
-# Compile WiX source
-Write-Info "Compiling WiX source file..."
-$WixObjFile = "$WixObjDir\main.wixobj"
-
-try {
-    & $CandlePath `
-        -dCargoTargetBinDir="target\release" `
-        -dVersion="$Version" `
-        -arch x64 `
-        -out $WixObjFile `
-        "wix\main.wxs"
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-ErrorMsg "WiX compilation failed with exit code $LASTEXITCODE"
-        exit 1
-    }
-
-    Write-Success "WiX source compiled"
-}
-catch {
-    Write-ErrorMsg "WiX compilation failed: $_"
-    exit 1
-}
-
-# Link to create MSI
-Write-Info "Linking MSI installer..."
 $MsiFile = "$MsiOutputDir\pwe-karaoke_${Version}_x64_en-US.msi"
 
-try {
-    & $LightPath `
-        -out $MsiFile `
-        $WixObjFile `
-        -ext WixUIExtension `
-        -spdb
+if ($WixVersion -eq "4+") {
+    # Use WiX 4+ (wix build)
+    Write-Info "Building with WiX 4+..."
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-ErrorMsg "MSI linking failed with exit code $LASTEXITCODE"
+    try {
+        & wix build `
+            -d CargoTargetBinDir="target\release" `
+            -d Version="$Version" `
+            -arch x64 `
+            -out $MsiFile `
+            "wix\main.wxs"
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorMsg "WiX build failed with exit code $LASTEXITCODE"
+            exit 1
+        }
+
+        Write-Success "MSI installer created"
+    }
+    catch {
+        Write-ErrorMsg "WiX build failed: $_"
+        exit 1
+    }
+}
+else {
+    # Use WiX 3.x (candle + light)
+    Write-Info "Compiling WiX source file..."
+    $WixObjFile = "$WixObjDir\main.wixobj"
+
+    try {
+        & $CandlePath `
+            -dCargoTargetBinDir="target\release" `
+            -dVersion="$Version" `
+            -arch x64 `
+            -out $WixObjFile `
+            "wix\main.wxs"
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorMsg "WiX compilation failed with exit code $LASTEXITCODE"
+            exit 1
+        }
+
+        Write-Success "WiX source compiled"
+    }
+    catch {
+        Write-ErrorMsg "WiX compilation failed: $_"
         exit 1
     }
 
-    Write-Success "MSI installer created"
-}
-catch {
-    Write-ErrorMsg "MSI linking failed: $_"
-    exit 1
+    # Link to create MSI
+    Write-Info "Linking MSI installer..."
+
+    try {
+        & $LightPath `
+            -out $MsiFile `
+            $WixObjFile `
+            -ext WixUIExtension `
+            -spdb
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorMsg "MSI linking failed with exit code $LASTEXITCODE"
+            exit 1
+        }
+
+        Write-Success "MSI installer created"
+    }
+    catch {
+        Write-ErrorMsg "MSI linking failed: $_"
+        exit 1
+    }
 }
 
 # ============================================================================
