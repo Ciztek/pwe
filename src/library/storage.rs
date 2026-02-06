@@ -14,16 +14,43 @@ pub struct LibraryEntry {
     pub is_favorite: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryPlaylist {
+    pub name: String,
+    pub entries: Vec<String>, // List of stored_filenames
+}
+
 /// Manages the persistent library storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryMetadata {
     pub entries: Vec<LibraryEntry>,
+    pub playlists: Vec<LibraryPlaylist>,
+}
+
+impl LibraryPlaylist {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            entries: Vec::new(),
+        }
+    }
+
+    pub fn add_entry(&mut self, stored_filename: String) {
+        if !self.entries.contains(&stored_filename) {
+            self.entries.push(stored_filename);
+        }
+    }
+
+    pub fn remove_entry(&mut self, stored_filename: &str) {
+        self.entries.retain(|e| e != stored_filename);
+    }
 }
 
 impl LibraryMetadata {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
+            playlists: Vec::new(),
         }
     }
 
@@ -40,6 +67,28 @@ impl LibraryMetadata {
             Some(self.entries.remove(pos))
         } else {
             None
+        }
+    }
+
+    pub fn add_playlist(&mut self, playlist: LibraryPlaylist) {
+        if !self.playlists.iter().any(|p| p.name == playlist.name) {
+            self.playlists.push(playlist);
+        }
+    }
+
+    pub fn remove_playlist(&mut self, playlist_name: &str) {
+        self.playlists.retain(|p| p.name != playlist_name);
+    }
+
+    pub fn add_song_to_playlist(&mut self, playlist_name: &str, stored_filename: String) {
+        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
+            playlist.add_entry(stored_filename);
+        }
+    }
+
+    pub fn remove_song_from_playlist(&mut self, playlist_name: &str, stored_filename: &str) {
+        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
+            playlist.remove_entry(stored_filename);
         }
     }
 
