@@ -1623,12 +1623,11 @@ impl KaraokeApp {
 
             match loader::load_audio_file(&path) {
                 Ok(decoder) => {
-                    // Note: Rodio doesn't support seeking in most formats
-                    // We just reload from the beginning for now
-                    // The position tracker is updated to maintain karaoke sync
-
                     if let Some(sink) = self.audio.audio_player.sink() {
-                        sink.append(decoder);
+                        // Use skip_duration to seek to the desired position
+                        use rodio::Source;
+                        let seeked_source = decoder.skip_duration(position);
+                        sink.append(seeked_source);
 
                         if was_playing {
                             sink.play();
