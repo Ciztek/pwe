@@ -4,6 +4,7 @@ mod config;
 mod library;
 mod lrc;
 mod network;
+mod playlist;
 mod ui;
 
 use app::KaraokeApp;

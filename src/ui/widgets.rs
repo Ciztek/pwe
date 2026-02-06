@@ -168,6 +168,7 @@ pub fn render_library_section(
     add_song_path_input: &mut String,
     app_state: &mut AppState,
     theme: Theme,
+    playlists: &crate::playlist::PlaylistCollection,
 ) -> LibraryAction {
     let mut action = LibraryAction::None;
     let mut page = app_state.song_pagination;
@@ -566,6 +567,47 @@ pub fn render_library_section(
                                                 LibraryAction::ToggleFavorite(song.path.clone());
                                         }
 
+                                        ui.add_space(4.0);
+
+                                        // Add to playlist button
+                                        if !playlists.playlists.is_empty() {
+                                            ui.menu_button(
+                                                egui::RichText::new("▼")
+                                                    .size(12.0)
+                                                    .color(theme.text_muted()),
+                                                |ui| {
+                                                    ui.label(
+                                                        egui::RichText::new("Add to Playlist")
+                                                            .color(theme.primary())
+                                                            .size(11.0),
+                                                    );
+                                                    ui.separator();
+                                                    for playlist in &playlists.playlists {
+                                                        let is_in_playlist = playlist.contains(&song.path);
+                                                        let label = if is_in_playlist {
+                                                            format!("✓ {}", playlist.name)
+                                                        } else {
+                                                            playlist.name.clone()
+                                                        };
+                                                        if ui.button(label).clicked() {
+                                                            if is_in_playlist {
+                                                                action = LibraryAction::RemoveFromPlaylist(
+                                                                    playlist.name.clone(),
+                                                                    song.path.clone(),
+                                                                );
+                                                            } else {
+                                                                action = LibraryAction::AddToPlaylist(
+                                                                    playlist.name.clone(),
+                                                                    song.path.clone(),
+                                                                );
+                                                            }
+                                                            ui.close_menu();
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        }
+
                                         ui.add_space(8.0);
 
                                         // Show lyrics indicator
@@ -722,4 +764,9 @@ pub enum LibraryAction {
     RemoveSong(std::path::PathBuf),
     RefreshLibrary,
     ToggleFavorite(std::path::PathBuf),
+    CreatePlaylist(String),
+    DeletePlaylist(String),
+    AddToPlaylist(String, std::path::PathBuf),
+    RemoveFromPlaylist(String, std::path::PathBuf),
+    SelectPlaylist(String),
 }

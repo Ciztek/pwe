@@ -44,6 +44,9 @@ pub struct Library {
     library_dir: Option<PathBuf>,
     add_song_path_input: String,
     play_history: Vec<PathBuf>, // Last 10 played songs
+    playlists: crate::playlist::PlaylistCollection,
+    new_playlist_name: String,
+    show_playlist_dialog: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +54,7 @@ pub enum LibraryViewFilter {
     AllSongs,
     Favorites,
     History,
+    Playlist(usize), // Index into playlists collection
 }
 
 pub struct Karaoke {
@@ -260,6 +264,9 @@ impl Library {
             library_dir: library_dir.clone(),
             add_song_path_input: String::new(),
             play_history,
+            playlists: crate::playlist::PlaylistCollection::load(),
+            new_playlist_name: String::new(),
+            show_playlist_dialog: false,
         };
 
         // Scan the library directory on startup
@@ -917,13 +924,121 @@ impl KaraokeApp {
                         .strong(),
                 );
                 ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new("(to be implemented)")
-                        .color(self.ui.theme.text_muted())
-                        .size(10.0)
-                        .italics(),
-                );
+
+                // Collect playlist info before UI rendering to avoid borrow checker issues
+                let playlist_info: Vec<(usize, String, usize)> = self.library.playlists.playlists.iter()
+                    .enumerate()
+                    .map(|(idx, p)| (idx, p.name.clone(), p.songs.len()))
+                    .collect();
+
+                let mut playlist_to_delete: Option<String> = None;
+                let mut playlist_to_select: Option<usize> = None;
+
+                // Playlist list
+                egui::ScrollArea::vertical()
+                    .id_salt("playlist_scroll")
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for (idx, name, song_count) in &playlist_info {
+                            let is_selected = matches!(self.library.library_view_filter, LibraryViewFilter::Playlist(i) if i == *idx);
+                            let text_color = if is_selected {
+                                self.ui.theme.primary()
+                            } else {
+                                self.ui.theme.text_muted()
+                            };
+
+                            ui.horizontal(|ui| {
+                                let label = format!("♫ {} ({})", name, song_count);
+                                if ui
+                                    .selectable_label(is_selected, egui::RichText::new(label).color(text_color).size(11.0))
+                                    .clicked()
+                                {
+                                    playlist_to_select = Some(*idx);
+                                }
+
+                                if ui.button(egui::RichText::new("✕").color(self.ui.theme.alert()).size(10.0))
+                                    .on_hover_text("Delete playlist")
+                                    .clicked()
+                                {
+                                    playlist_to_delete = Some(name.clone());
+                                }
+                            });
+                        }
+
+                        if playlist_info.is_empty() {
+                            ui.label(
+                                egui::RichText::new("No playlists")
+                                    .color(self.ui.theme.text_muted())
+                                    .size(10.0)
+                                    .italics(),
+                            );
+                        }
+                    });
+
+                // Handle playlist actions after UI rendering
+                if let Some(idx) = playlist_to_select {
+                    self.library.library_view_filter = LibraryViewFilter::Playlist(idx);
+                    if let Some((_, name, _)) = playlist_info.get(idx) {
+                        info!("Selected playlist: {}", name);
+                    }
+                }
+
+                if let Some(name) = playlist_to_delete {
+                    self.library.playlists.delete_playlist(&name);
+                    if let Err(e) = self.library.playlists.save() {
+                        error!("Failed to save playlists: {}", e);
+                    }
+                    if matches!(self.library.library_view_filter, LibraryViewFilter::Playlist(_)) {
+                        self.library.library_view_filter = LibraryViewFilter::AllSongs;
+                    }
+                    info!("Deleted playlist: {}", name);
+                }
+
+                ui.add_space(8.0);
+
+                // New playlist button
+                if ui
+                    .button(egui::RichText::new("[ + New Playlist ]").color(self.ui.theme.accent()))
+                    .clicked()
+                {
+                    self.library.show_playlist_dialog = true;
+                }
             });
+
+            // New playlist dialog
+            if self.library.show_playlist_dialog {
+                egui::Window::new("Create Playlist")
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ui.ctx(), |ui| {
+                        ui.label("Playlist Name:");
+                        ui.text_edit_singleline(&mut self.library.new_playlist_name);
+
+                        ui.add_space(8.0);
+
+                        ui.horizontal(|ui| {
+                            if ui.button("Create").clicked() {
+                                if !self.library.new_playlist_name.is_empty() {
+                                    if self.library.playlists.create_playlist(self.library.new_playlist_name.clone()) {
+                                        if let Err(e) = self.library.playlists.save() {
+                                            error!("Failed to save playlists: {}", e);
+                                        }
+                                        info!("Created playlist: {}", self.library.new_playlist_name);
+                                        self.library.new_playlist_name.clear();
+                                        self.library.show_playlist_dialog = false;
+                                    } else {
+                                        error!("Playlist with name '{}' already exists", self.library.new_playlist_name);
+                                    }
+                                }
+                            }
+
+                            if ui.button("Cancel").clicked() {
+                                self.library.new_playlist_name.clear();
+                                self.library.show_playlist_dialog = false;
+                            }
+                        });
+                    });
+            }
 
             ui.add_space(8.0);
             ui.separator();
@@ -958,6 +1073,25 @@ impl KaraokeApp {
                         }
                         history_songs
                     },
+                    LibraryViewFilter::Playlist(idx) => {
+                        // Show songs from selected playlist in order
+                        if let Some(playlist) = self.library.playlists.playlists.get(idx) {
+                            let mut playlist_songs = Vec::new();
+                            for song_path in &playlist.songs {
+                                if let Some(song) = self
+                                    .library
+                                    .library
+                                    .iter()
+                                    .find(|s| &s.path == song_path)
+                                {
+                                    playlist_songs.push(song.clone());
+                                }
+                            }
+                            playlist_songs
+                        } else {
+                            Vec::new()
+                        }
+                    },
                 };
 
                 let filtered_refs: Vec<&Song> = filtered_library.iter().collect();
@@ -970,6 +1104,7 @@ impl KaraokeApp {
                     &mut self.library.add_song_path_input,
                     &mut self.app_state,
                     self.ui.theme,
+                    &self.library.playlists,
                 );
 
                 match library_action {
@@ -1014,6 +1149,51 @@ impl KaraokeApp {
                     },
                     widgets::LibraryAction::ToggleFavorite(path) => {
                         self.library.toggle_favorite(&path);
+                    },
+                    widgets::LibraryAction::CreatePlaylist(name) => {
+                        if self.library.playlists.create_playlist(name.clone()) {
+                            if let Err(e) = self.library.playlists.save() {
+                                error!("Failed to save playlists: {}", e);
+                            }
+                            info!("Created playlist: {}", name);
+                        } else {
+                            error!("Playlist with name '{}' already exists", name);
+                        }
+                    },
+                    widgets::LibraryAction::DeletePlaylist(name) => {
+                        if self.library.playlists.delete_playlist(&name) {
+                            if let Err(e) = self.library.playlists.save() {
+                                error!("Failed to save playlists: {}", e);
+                            }
+                            if matches!(self.library.library_view_filter, LibraryViewFilter::Playlist(_)) {
+                                self.library.library_view_filter = LibraryViewFilter::AllSongs;
+                            }
+                            info!("Deleted playlist: {}", name);
+                        }
+                    },
+                    widgets::LibraryAction::AddToPlaylist(playlist_name, song_path) => {
+                        if let Some(playlist) = self.library.playlists.get_playlist_mut(&playlist_name) {
+                            playlist.add_song(song_path.clone());
+                            if let Err(e) = self.library.playlists.save() {
+                                error!("Failed to save playlists: {}", e);
+                            }
+                            info!("Added song to playlist '{}': {}", playlist_name, song_path.display());
+                        }
+                    },
+                    widgets::LibraryAction::RemoveFromPlaylist(playlist_name, song_path) => {
+                        if let Some(playlist) = self.library.playlists.get_playlist_mut(&playlist_name) {
+                            playlist.remove_song(&song_path);
+                            if let Err(e) = self.library.playlists.save() {
+                                error!("Failed to save playlists: {}", e);
+                            }
+                            info!("Removed song from playlist '{}': {}", playlist_name, song_path.display());
+                        }
+                    },
+                    widgets::LibraryAction::SelectPlaylist(name) => {
+                        if let Some(idx) = self.library.playlists.playlists.iter().position(|p| p.name == name) {
+                            self.library.library_view_filter = LibraryViewFilter::Playlist(idx);
+                            info!("Selected playlist: {}", name);
+                        }
                     },
                     widgets::LibraryAction::None => {},
                 }
