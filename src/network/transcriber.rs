@@ -66,19 +66,27 @@ impl Transcriber {
 
         info!("Starting transcription for: {}", audio_path.display());
 
-        // Try openlrc first (preferred as it's designed for lyrics)
-        if Self::check_openlrc() {
-            self.transcribe_with_openlrc(audio_path).await
-        } else if Self::check_whisper() {
-            self.transcribe_with_whisper(audio_path).await
-        } else {
-            Err(
-                "Neither openlrc nor whisper is installed. Please install one of them:\n\
-                - openlrc: pip install openlrc\n\
-                - whisper: pip install openai-whisper"
-                    .to_string(),
-            )
+        // Try whisper first (more stable and widely compatible)
+        if Self::check_whisper() {
+            match self.transcribe_with_whisper(audio_path).await {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    info!("Whisper transcription failed, trying openlrc: {}", e);
+                },
+            }
         }
+
+        // Fall back to openlrc if whisper isn't available or failed
+        if Self::check_openlrc() {
+            return self.transcribe_with_openlrc(audio_path).await;
+        }
+
+        Err(
+            "Neither whisper nor openlrc is installed. Please install one of them:\n\
+                - Recommended: pip install openai-whisper\n\
+                - Alternative: pip install openlrc"
+                .to_string(),
+        )
     }
 
     async fn transcribe_with_openlrc(&self, audio_path: &Path) -> Result<PathBuf, String> {
@@ -170,11 +178,41 @@ impl Transcriber {
             return Err(format!("Transcription failed: {}", error_msg));
         }
 
-        // Whisper creates .srt file, we need to convert it to .lrc
-        let srt_path = audio_path.with_extension("srt");
+        // Log whisper output for debugging
+        let stdout_msg = String::from_utf8_lossy(&output.stdout);
+        let stderr_msg = String::from_utf8_lossy(&output.stderr);
+        info!("Whisper stdout: {}", stdout_msg);
+        if !stderr_msg.is_empty() {
+            info!("Whisper stderr: {}", stderr_msg);
+        }
+
+        // Whisper creates a .srt file in the output directory with the audio file's stem name
+        let audio_stem = audio_path.file_stem().ok_or("Cannot get audio file name")?;
+        let stem_str = audio_stem.to_string_lossy();
         let lrc_path = audio_path.with_extension("lrc");
 
-        if srt_path.exists() {
+        info!("Looking for SRT file with stem: {}", stem_str);
+
+        // Wait a moment for file to be written
+        std::thread::sleep(std::time::Duration::from_millis(500));
+
+        // Search for .srt file that matches the audio stem (whisper might add language code like .en.srt)
+        let mut srt_path: Option<PathBuf> = None;
+        if let Ok(entries) = std::fs::read_dir(output_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let file_name = entry.file_name();
+                let file_name_str = file_name.to_string_lossy();
+                // Look for files that start with the stem and end with .srt
+                if file_name_str.starts_with(stem_str.as_ref()) && file_name_str.ends_with(".srt") {
+                    srt_path = Some(entry.path());
+                    info!("Found SRT file: {}", file_name_str);
+                    break;
+                }
+            }
+        }
+
+        if let Some(srt_path) = srt_path {
+            info!("Found SRT file at: {}", srt_path.display());
             // Convert SRT to LRC format
             self.convert_srt_to_lrc(&srt_path, &lrc_path)?;
 
@@ -187,7 +225,16 @@ impl Transcriber {
             );
             Ok(lrc_path)
         } else {
-            Err("Transcription file was not created".to_string())
+            // List files in output directory for debugging
+            if let Ok(entries) = std::fs::read_dir(output_dir) {
+                let files: Vec<String> = entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| e.file_name().to_str().map(String::from))
+                    .collect();
+                error!("Files in output directory: {:?}", files);
+                error!("Looking for files starting with: {}", stem_str);
+            }
+            Err(format!("SRT file not found with stem: {}", stem_str))
         }
     }
 

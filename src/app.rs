@@ -1118,7 +1118,7 @@ impl KaraokeApp {
                 // Show transcription status if active
                 if self.transcription_state.is_transcribing {
                     ui.add_space(8.0);
-                    widgets::render_armor_card(ui, self.ui.theme, |ui| {
+                    let should_cancel = widgets::render_armor_card(ui, self.ui.theme, |ui| {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label(
@@ -1127,7 +1127,20 @@ impl KaraokeApp {
                                     .strong()
                                     .size(13.0),
                             );
-                        });
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.button(
+                                    egui::RichText::new("[×]")
+                                        .size(14.0)
+                                        .color(self.ui.theme.error()),
+                                )
+                                .on_hover_text("Cancel transcription")
+                                .clicked()
+                            }).inner
+                        }).inner
+                    });
+
+                    ui.vertical(|ui| {
                         ui.add_space(4.0);
                         ui.label(
                             egui::RichText::new(format!("🎵 {}", self.transcription_state.song_name))
@@ -1141,9 +1154,17 @@ impl KaraokeApp {
                                 .size(10.0),
                         );
                     });
+
                     ui.add_space(8.0);
 
-                    // Check if transcription completed by checking if .lrc file exists
+                    // Handle cancel button
+                    if should_cancel {
+                        info!("Transcription cancelled by user");
+                        self.transcription_state.is_transcribing = false;
+                        self.transcription_state.song_path = None;
+                    }
+
+                    // Check if transcription completed
                     if let Some(ref path) = self.transcription_state.song_path {
                         let lrc_path = path.with_extension("lrc");
                         if lrc_path.exists() {

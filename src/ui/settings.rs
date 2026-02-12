@@ -762,27 +762,42 @@ fn render_network_settings(
         ui.add_space(8.0);
 
         ui.label(
-            egui::RichText::new("⚠ Requires transcription tool to be installed")
+            egui::RichText::new("⚠ Requirements:")
                 .color(theme.alert())
                 .size(11.0),
         );
         ui.label(
-            egui::RichText::new("Recommended for Windows: pip install openai-whisper")
-                .color(theme.text_muted())
-                .size(10.0),
-        );
-        ui.label(
-            egui::RichText::new("Alternative: pip install openlrc")
+            egui::RichText::new("1. FFmpeg must be installed and in PATH")
                 .color(theme.text_muted())
                 .size(10.0),
         );
         ui.label(
             egui::RichText::new(
-                "Note: openlrc may have compatibility issues on Windows Store Python",
+                "   Windows: choco install ffmpeg  OR  download from github.com/BtbN/FFmpeg-Builds",
             )
             .color(theme.text_muted())
-            .italics()
             .size(9.0),
+        );
+        ui.label(
+            egui::RichText::new("2. Install transcription tool:")
+                .color(theme.text_muted())
+                .size(10.0),
+        );
+        ui.label(
+            egui::RichText::new("   Recommended: python -m pip install openai-whisper")
+                .color(theme.text_muted())
+                .size(9.0),
+        );
+        ui.label(
+            egui::RichText::new("   Alternative: python -m pip install openlrc")
+                .color(theme.text_muted())
+                .size(9.0),
+        );
+        ui.label(
+            egui::RichText::new("Note: openlrc may have compatibility issues on Windows")
+                .color(theme.text_muted())
+                .italics()
+                .size(8.0),
         );
     });
 
