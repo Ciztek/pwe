@@ -41,6 +41,12 @@ pub struct NetworkConfig {
     pub youtube_playlist_url: String,
     pub spotify_playlist_url: String,
     pub download_path: Option<PathBuf>,
+    #[serde(default = "default_whisper_model")]
+    pub whisper_model: String,
+}
+
+fn default_whisper_model() -> String {
+    "turbo".to_string()
 }
 
 impl Default for AppConfig {
@@ -102,6 +108,7 @@ impl Default for NetworkConfig {
             youtube_playlist_url: String::new(),
             spotify_playlist_url: String::new(),
             download_path,
+            whisper_model: default_whisper_model(),
         }
     }
 }

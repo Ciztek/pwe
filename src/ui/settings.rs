@@ -728,6 +728,64 @@ fn render_network_settings(
         );
     });
 
+    ui.add_space(16.0);
+
+    render_settings_card(ui, theme, "LYRICS TRANSCRIPTION", |ui, theme| {
+        ui.label(
+            egui::RichText::new("Whisper AI Model:")
+                .color(theme.text_muted())
+                .size(12.0),
+        );
+        ui.add_space(4.0);
+
+        egui::ComboBox::from_id_salt("whisper_model")
+            .selected_text(&state.config.network.whisper_model)
+            .show_ui(ui, |ui| {
+                let models = vec![
+                    ("tiny", "Tiny - Fastest, least accurate"),
+                    ("base", "Base - Fast, basic accuracy"),
+                    ("small", "Small - Balanced"),
+                    ("medium", "Medium - Good accuracy"),
+                    ("large", "Large - Best accuracy, slower"),
+                    ("turbo", "Turbo - Optimized, recommended"),
+                ];
+
+                for (model, description) in models {
+                    ui.selectable_value(
+                        &mut state.config.network.whisper_model,
+                        model.to_string(),
+                        format!("{} - {}", model, description),
+                    );
+                }
+            });
+
+        ui.add_space(8.0);
+
+        ui.label(
+            egui::RichText::new("⚠ Requires transcription tool to be installed")
+                .color(theme.alert())
+                .size(11.0),
+        );
+        ui.label(
+            egui::RichText::new("Recommended for Windows: pip install openai-whisper")
+                .color(theme.text_muted())
+                .size(10.0),
+        );
+        ui.label(
+            egui::RichText::new("Alternative: pip install openlrc")
+                .color(theme.text_muted())
+                .size(10.0),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Note: openlrc may have compatibility issues on Windows Store Python",
+            )
+            .color(theme.text_muted())
+            .italics()
+            .size(9.0),
+        );
+    });
+
     ui.add_space(24.0);
 
     ui.horizontal(|ui| {

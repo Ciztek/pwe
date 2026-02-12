@@ -610,27 +610,31 @@ pub fn render_library_section(
 
                                         ui.add_space(8.0);
 
-                                        // Show lyrics indicator
-                                        let lyrics_icon =
-                                            if song.has_lyrics { "🎤" } else { "♪" };
-                                        let lyrics_color = if song.has_lyrics {
-                                            theme.accent()
-                                        } else {
-                                            theme.text_muted()
-                                        };
+                                        // Show lyrics indicator or transcribe button
+                                        if song.has_lyrics {
+                                            let lyrics_icon = "🎤";
+                                            let lyrics_color = theme.accent();
 
-                                        ui.label(
-                                            egui::RichText::new(lyrics_icon)
-                                                .size(13.0)
-                                                .color(lyrics_color),
-                                        )
-                                        .on_hover_text(
-                                            if song.has_lyrics {
-                                                "Has lyrics file"
-                                            } else {
-                                                "No lyrics file"
-                                            },
-                                        );
+                                            ui.label(
+                                                egui::RichText::new(lyrics_icon)
+                                                    .size(13.0)
+                                                    .color(lyrics_color),
+                                            )
+                                            .on_hover_text("Has lyrics file");
+                                        } else {
+                                            // Show transcribe button for songs without lyrics
+                                            if ui
+                                                .button(
+                                                    egui::RichText::new("[ 🎙 Transcribe ]")
+                                                        .size(10.0)
+                                                        .color(theme.primary()),
+                                                )
+                                                .on_hover_text("Generate lyrics using Whisper AI")
+                                                .clicked()
+                                            {
+                                                action = LibraryAction::TranscribeLyrics(song.path.clone());
+                                            }
+                                        }
 
                                         ui.add_space(8.0);
 
@@ -769,4 +773,5 @@ pub enum LibraryAction {
     AddToPlaylist(String, std::path::PathBuf),
     RemoveFromPlaylist(String, std::path::PathBuf),
     SelectPlaylist(String),
+    TranscribeLyrics(std::path::PathBuf),
 }

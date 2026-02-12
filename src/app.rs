@@ -72,6 +72,23 @@ pub struct DownloadState {
     pub status_message: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct TranscriptionState {
+    pub is_transcribing: bool,
+    pub song_name: String,
+    pub song_path: Option<PathBuf>,
+}
+
+impl Default for TranscriptionState {
+    fn default() -> Self {
+        Self {
+            is_transcribing: false,
+            song_name: String::new(),
+            song_path: None,
+        }
+    }
+}
+
 pub struct NetworkState {
     pub downloader: Downloader,
     pub download_tx: Option<Sender<DownloadMessage>>,
@@ -118,6 +135,7 @@ pub struct KaraokeApp {
     library: Library,
     karaoke: Karaoke,
     download_state: DownloadState,
+    transcription_state: TranscriptionState,
     network_state: NetworkState,
 }
 
@@ -624,6 +642,7 @@ impl KaraokeApp {
             library: Library::new(),
             karaoke: Karaoke::new(),
             download_state: DownloadState::default(),
+            transcription_state: TranscriptionState::default(),
             network_state: NetworkState {
                 downloader: Downloader::new(download_path),
                 download_tx: None,
@@ -1096,6 +1115,46 @@ impl KaraokeApp {
 
                 let filtered_refs: Vec<&Song> = filtered_library.iter().collect();
 
+                // Show transcription status if active
+                if self.transcription_state.is_transcribing {
+                    ui.add_space(8.0);
+                    widgets::render_armor_card(ui, self.ui.theme, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(
+                                egui::RichText::new("Transcribing lyrics...")
+                                    .color(self.ui.theme.accent())
+                                    .strong()
+                                    .size(13.0),
+                            );
+                        });
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(format!("🎵 {}", self.transcription_state.song_name))
+                                .color(self.ui.theme.text_primary())
+                                .size(12.0),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new("This may take a few minutes depending on song length...")
+                                .color(self.ui.theme.text_muted())
+                                .size(10.0),
+                        );
+                    });
+                    ui.add_space(8.0);
+
+                    // Check if transcription completed by checking if .lrc file exists
+                    if let Some(ref path) = self.transcription_state.song_path {
+                        let lrc_path = path.with_extension("lrc");
+                        if lrc_path.exists() {
+                            info!("Transcription completed, refreshing library");
+                            self.transcription_state.is_transcribing = false;
+                            self.transcription_state.song_path = None;
+                            self.library.refresh_library();
+                        }
+                    }
+                }
+
                 let library_action = widgets::render_library_section(
                     ui,
                     &filtered_refs,
@@ -1194,6 +1253,9 @@ impl KaraokeApp {
                             self.library.library_view_filter = LibraryViewFilter::Playlist(idx);
                             info!("Selected playlist: {}", name);
                         }
+                    },
+                    widgets::LibraryAction::TranscribeLyrics(path) => {
+                        self.transcribe_lyrics(path);
                     },
                     widgets::LibraryAction::None => {},
                 }
@@ -1646,5 +1708,62 @@ impl KaraokeApp {
                 },
             }
         }
+    }
+
+    fn transcribe_lyrics(&mut self, song_path: PathBuf) {
+        use crate::network::transcriber::Transcriber;
+
+        info!("Starting lyrics transcription for: {}", song_path.display());
+
+        // Check if transcription tools are available
+        if !Transcriber::is_available() {
+            error!(
+                "Transcription tools not available. Please install openlrc or whisper:\n\
+                - Recommended: pip install openai-whisper\n\
+                - Alternative: pip install openlrc (may have issues on Windows Store Python)"
+            );
+            return;
+        }
+
+        // Get song name for display
+        let song_name = song_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        // Set transcription state
+        self.transcription_state.is_transcribing = true;
+        self.transcription_state.song_name = song_name;
+        self.transcription_state.song_path = Some(song_path.clone());
+
+        let model = self.settings_state.config.network.whisper_model.clone();
+        let transcriber = Transcriber::new(model);
+
+        // Spawn background thread for transcription
+        let song_path_clone = song_path.clone();
+        std::thread::spawn(move || {
+            // Create a Tokio runtime for this thread
+            let runtime = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    error!("Failed to create Tokio runtime: {}", e);
+                    return;
+                },
+            };
+
+            runtime.block_on(async move {
+                match transcriber.transcribe_to_lrc(&song_path_clone).await {
+                    Ok(lrc_path) => {
+                        info!("✓ Lyrics transcription completed: {}", lrc_path.display());
+                    },
+                    Err(e) => {
+                        error!("✗ Lyrics transcription failed: {}", e);
+                    },
+                }
+            });
+        });
+
+        info!("Transcription started in background");
     }
 }
