@@ -1,5 +1,8 @@
 pub mod metadata;
 
+use serde::de;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
@@ -12,6 +15,31 @@ pub struct Song {
     extension: String,
     has_lyrics: bool,
     metadata: Option<AudioMetadata>,
+}
+
+impl Serialize for Song {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(
+            self.path
+                .to_str()
+                .ok_or_else(|| serde::ser::Error::custom("Invalid UTF-8 path"))?,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for Song {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let path_str = String::deserialize(deserializer)?;
+        let path = std::path::PathBuf::from(path_str);
+
+        Song::from_path(path).ok_or_else(|| de::Error::custom("Failed to rebuild Song from path"))
+    }
 }
 
 impl Song {

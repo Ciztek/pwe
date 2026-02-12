@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::ser::SerializeStruct;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -7,6 +8,8 @@ use notify::{
     event::{EventKind, ModifyKind},
     RecommendedWatcher, RecursiveMode, Watcher,
 };
+use serde::de;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::{error, info, warn};
 
 use crate::song::Song;
@@ -39,6 +42,47 @@ pub struct Library {
     _rx: Receiver<LibraryEvent>,
     _watcher: RecommendedWatcher,
     _repaint_hook: RepaintHook,
+}
+
+impl Serialize for Library {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("Library", 1)?;
+        state.serialize_field("entries", &self.songs)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Library {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct LibraryData {
+            entries: Vec<Song>,
+        }
+
+        let data = LibraryData::deserialize(deserializer)?;
+
+        // Recreate runtime components
+        let library_dir = Library::get_library_directory().map_err(de::Error::custom)?;
+
+        let repaint_hook = Arc::new(Mutex::new(None));
+
+        let (rx, watcher) = Library::start_watcher(library_dir.clone(), repaint_hook.clone())
+            .map_err(de::Error::custom)?;
+
+        Ok(Library {
+            songs: data.entries,
+            _path: library_dir,
+            _rx: rx,
+            _watcher: watcher,
+            _repaint_hook: repaint_hook,
+        })
+    }
 }
 
 impl Library {
@@ -220,7 +264,7 @@ impl Library {
 
         #[cfg(debug_assertions)]
         {
-            let dir = PathBuf::from("dev_library");
+            let dir = PathBuf::from("dev_library_v2");
             std::fs::create_dir_all(&dir)?;
             Ok(dir)
         }
