@@ -29,11 +29,18 @@ enum LibraryEvent {
     Modify(PathBuf),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Playlist {
+    pub name: String,
+    pub entries: Vec<Song>,
+}
+
 #[derive(Debug)]
 pub struct Library {
     songs: Vec<Song>,
-    _path: PathBuf,
+    playlists: Vec<Playlist>,
 
+    _path: PathBuf,
     _rx: Receiver<LibraryEvent>,
     _watcher: RecommendedWatcher,
     _repaint_hook: RepaintHook,
@@ -44,8 +51,9 @@ impl Serialize for Library {
     where
         S: Serializer,
     {
-        let mut state = serializer.serialize_struct("Library", 1)?;
+        let mut state = serializer.serialize_struct("Library", 2)?;
         state.serialize_field("entries", &self.songs)?;
+        state.serialize_field("playlists", &self.playlists)?;
         state.end()
     }
 }
@@ -58,6 +66,7 @@ impl<'de> Deserialize<'de> for Library {
         #[derive(Deserialize)]
         struct Data {
             entries: Vec<Song>,
+            playlists: Vec<Playlist>,
         }
 
         let data = Data::deserialize(deserializer)?;
@@ -73,8 +82,22 @@ impl<'de> Deserialize<'de> for Library {
             .filter(|s| s.path().exists())
             .collect();
 
+        let playlists = data
+            .playlists
+            .into_iter()
+            .map(|p| Playlist {
+                name: p.name,
+                entries: p
+                    .entries
+                    .into_iter()
+                    .filter(|s| s.path().exists())
+                    .collect(),
+            })
+            .collect();
+
         Ok(Library {
             songs,
+            playlists,
             _path: dir,
             _rx: rx,
             _watcher: watcher,
@@ -103,6 +126,7 @@ impl Library {
 
         Ok(Self {
             songs: Vec::new(),
+            playlists: Vec::new(),
             _path: dir,
             _rx: rx,
             _watcher: watcher,
@@ -267,5 +291,37 @@ impl Library {
             }
         }
         Ok(())
+    }
+}
+
+impl Library {
+    pub fn playlist_create(&mut self, name: &str) -> &Playlist {
+        self.playlists.push(Playlist {
+            name: name.to_string(),
+            entries: Vec::new(),
+        });
+        self.playlists.last().unwrap()
+    }
+
+    pub fn playlist_delete(&mut self, name: &str) {
+        self.playlists.retain(|p| p.name != name);
+    }
+
+    pub fn playlist_add_song(&mut self, playlist_name: &str, song: &Song) {
+        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
+            if !playlist.entries.iter().any(|s| s.path() == song.path()) {
+                playlist.entries.push(song.clone());
+            }
+        }
+    }
+
+    pub fn playlist_remove_song(&mut self, playlist_name: &str, song: &Song) {
+        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
+            playlist.entries.retain(|s| s.path() != song.path());
+        }
+    }
+
+    pub fn playlists(&self) -> &[Playlist] {
+        &self.playlists
     }
 }
