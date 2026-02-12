@@ -2,7 +2,6 @@ pub mod metadata;
 
 use serde::de;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
@@ -36,36 +35,28 @@ impl<'de> Deserialize<'de> for Song {
         D: Deserializer<'de>,
     {
         let path_str = String::deserialize(deserializer)?;
-        let path = std::path::PathBuf::from(path_str);
+        let path = PathBuf::from(path_str);
 
-        Song::from_path(path).ok_or_else(|| de::Error::custom("Failed to rebuild Song from path"))
+        Song::from_path(path).ok_or_else(|| de::Error::custom("Failed to rebuild Song"))
     }
 }
 
 impl Song {
     pub fn from_path(path: PathBuf) -> Option<Self> {
-        let name = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())?;
+        let name = path.file_stem()?.to_str()?.to_string();
+        let extension = path.extension()?.to_str()?.to_string();
 
-        let extension = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())?;
-
-        let lrc_path = path.with_extension("lrc");
-        let has_lyrics = lrc_path.exists();
+        let has_lyrics = path.with_extension("lrc").exists();
 
         let metadata = match extract_metadata(&path) {
             Ok(meta) => Some(meta),
             Err(e) => {
-                warn!("Failed to extract metadata for {}: {}", path.display(), e);
+                warn!("Metadata error: {}", e);
                 None
             },
         };
 
-        Some(Song {
+        Some(Self {
             path,
             name,
             extension,

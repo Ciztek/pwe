@@ -16,13 +16,10 @@ struct KaraokeApp {
 }
 
 impl KaraokeApp {
-    fn new(_cc: &eframe::CreationContext<'_>, mut library: Library) -> Self {
-        library.set_egui_ctx(_cc.egui_ctx.clone());
-        if let Err(e) = library.try_scan() {
-            error!("Failed to scan library: {:?}", e);
-        } else {
-            info!("Library initialized with {} songs", library.songs().len());
-        }
+    fn new(cc: &eframe::CreationContext<'_>, library: Library) -> Self {
+        library.set_egui_ctx(cc.egui_ctx.clone());
+
+        info!("Library initialized with {} songs", library.songs().len());
 
         Self {
             library,
@@ -37,7 +34,9 @@ impl KaraokeApp {
 
 impl eframe::App for KaraokeApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
-        self.library.poll();
+        if self.library.poll() {
+            // library is dirty but in theory all changes already auto-save
+        }
 
         #[cfg(debug_assertions)]
         {
@@ -51,6 +50,7 @@ impl eframe::App for KaraokeApp {
             }
 
             let avg_fps = self.frame_times.iter().sum::<f32>() / self.frame_times.len() as f32;
+
             self.last_frame_time = now;
 
             egui::Window::new("Debug Info")
@@ -66,7 +66,6 @@ impl eframe::App for KaraokeApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Welcome to PWE Karaoke v2!");
             ui.separator();
-
             ui.label(format!("Songs in library: {}", self.library.songs().len()));
         });
     }
@@ -75,13 +74,7 @@ impl eframe::App for KaraokeApp {
 fn main() -> eframe::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 700.0])
-            .with_min_inner_size([800.0, 500.0])
-            .with_title("PWE Karaoke"),
-        ..Default::default()
-    };
+    let options = eframe::NativeOptions::default();
 
     let library = match Library::try_new() {
         Ok(lib) => lib,

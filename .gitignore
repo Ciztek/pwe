@@ -44,7 +44,7 @@ config.json
 *.db
 *.sqlite
 logs/
-dev_library/
+dev_library*/
 library/
 !*/library
 

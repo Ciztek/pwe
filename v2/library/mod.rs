@@ -1,20 +1,15 @@
-use anyhow::{Context, Result};
-use serde::ser::SerializeStruct;
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-
+use anyhow::Result;
 use crossbeam_channel::{unbounded, Receiver};
-use notify::{
-    event::{EventKind, ModifyKind},
-    RecommendedWatcher, RecursiveMode, Watcher,
-};
+use notify::{event::ModifyKind, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::de;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::song::Song;
-
-use std::sync::{Arc, Mutex};
 
 type RepaintHook = Arc<Mutex<Option<egui::Context>>>;
 
@@ -61,82 +56,84 @@ impl<'de> Deserialize<'de> for Library {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct LibraryData {
+        struct Data {
             entries: Vec<Song>,
         }
 
-        let data = LibraryData::deserialize(deserializer)?;
+        let data = Data::deserialize(deserializer)?;
 
-        // Recreate runtime components
-        let library_dir = Library::get_library_directory().map_err(de::Error::custom)?;
+        let dir = Library::get_library_directory().map_err(de::Error::custom)?;
+        let repaint = Arc::new(Mutex::new(None));
+        let (rx, watcher) =
+            Library::start_watcher(dir.clone(), repaint.clone()).map_err(de::Error::custom)?;
 
-        let repaint_hook = Arc::new(Mutex::new(None));
-
-        let (rx, watcher) = Library::start_watcher(library_dir.clone(), repaint_hook.clone())
-            .map_err(de::Error::custom)?;
+        let songs = data
+            .entries
+            .into_iter()
+            .filter(|s| s.path().exists())
+            .collect();
 
         Ok(Library {
-            songs: data.entries,
-            _path: library_dir,
+            songs,
+            _path: dir,
             _rx: rx,
             _watcher: watcher,
-            _repaint_hook: repaint_hook,
+            _repaint_hook: repaint,
         })
     }
 }
 
 impl Library {
     pub fn try_new() -> Result<Self> {
-        let library_dir = Self::get_library_directory()?;
-        let _repaint_hook = Arc::new(Mutex::new(None));
+        match Self::load() {
+            Ok(lib) => Ok(lib),
+            Err(_) => {
+                let mut lib = Self::empty_runtime()?;
+                lib.try_scan()?;
+                lib.save()?;
+                Ok(lib)
+            },
+        }
+    }
 
-        let (rx, watcher) = Self::start_watcher(library_dir.clone(), _repaint_hook.clone())
-            .context("failed to start watcher")?;
+    fn empty_runtime() -> Result<Self> {
+        let dir = Self::get_library_directory()?;
+        let repaint = Arc::new(Mutex::new(None));
+        let (rx, watcher) = Self::start_watcher(dir.clone(), repaint.clone())?;
 
         Ok(Self {
             songs: Vec::new(),
-            _path: library_dir,
+            _path: dir,
             _rx: rx,
             _watcher: watcher,
-            _repaint_hook,
+            _repaint_hook: repaint,
         })
     }
 
-    pub fn set_egui_ctx(&self, ctx: egui::Context) {
-        match self._repaint_hook.lock() {
-            Ok(mut slot) => {
-                *slot = Some(ctx);
-            },
-            Err(poisoned) => {
-                *poisoned.into_inner() = Some(ctx);
-            },
-        }
+    pub fn save(&self) -> Result<()> {
+        let path = self._path.join("library.json");
+        let file = std::fs::File::create(&path)?;
+        serde_json::to_writer_pretty(file, self)?;
+        Ok(())
     }
 
-    pub fn try_scan(&mut self) -> Result<()> {
-        info!("Scanning library folder");
+    fn load() -> Result<Self> {
+        let dir = Self::get_library_directory()?;
+        let path = dir.join("library.json");
 
-        let mut songs = Vec::new();
+        let file = std::fs::File::open(path)?;
+        let lib: Library = serde_json::from_reader(file)?;
+        Ok(lib)
+    }
 
-        for entry in walkdir::WalkDir::new(&self._path)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(Result::ok)
-        {
-            let path = entry.path();
+    pub fn songs(&self) -> &[Song] {
+        &self.songs
+    }
 
-            if !path.is_file() || !is_audio_file(path) {
-                continue;
-            }
-
-            match Song::from_path(path.to_path_buf()) {
-                Some(song) => songs.push(song),
-                None => error!("Failed to parse song from: {}", path.display()),
-            }
+    pub fn set_egui_ctx(&self, ctx: egui::Context) {
+        if let Ok(mut slot) = self._repaint_hook.lock() {
+            *slot = Some(ctx);
         }
-
-        self.songs = songs;
-        Ok(())
     }
 
     pub fn poll(&mut self) -> bool {
@@ -148,8 +145,42 @@ impl Library {
         dirty
     }
 
-    pub fn songs(&self) -> &[Song] {
-        &self.songs
+    fn handle_event(&mut self, event: LibraryEvent) {
+        match event {
+            LibraryEvent::Add(path) => self.add(path),
+            LibraryEvent::Remove(path) => self.remove(&path),
+            LibraryEvent::Modify(path) => {
+                self.remove(&path);
+                self.add(path);
+            },
+        }
+
+        if let Err(e) = self.save() {
+            error!("Failed to save library: {:?}", e);
+        }
+    }
+
+    fn add(&mut self, path: PathBuf) {
+        if !is_audio_file(&path) {
+            return;
+        }
+
+        if self.songs.iter().any(|s| s.path() == path) {
+            return;
+        }
+
+        if let Some(song) = Song::from_path(path.clone()) {
+            info!("Added song: {}", path.display());
+            self.songs.push(song);
+        }
+    }
+    fn remove(&mut self, path: &Path) {
+        let before = self.songs.len();
+        self.songs.retain(|s| s.path() != path);
+
+        if self.songs.len() != before {
+            info!("Removed song: {}", path.display());
+        }
     }
 
     fn start_watcher(
@@ -202,71 +233,39 @@ impl Library {
         Ok((rx, watcher))
     }
 
-    fn handle_event(&mut self, event: LibraryEvent) {
-        match event {
-            LibraryEvent::Add(path) => self.add_song_from_path(path),
-            LibraryEvent::Remove(path) => self.remove_song_by_path(&path),
-            LibraryEvent::Modify(path) => self.update_song_from_path(path),
-        }
-    }
-
-    fn add_song_from_path(&mut self, path: PathBuf) {
-        if !is_audio_file(&path) {
-            return;
-        }
-
-        if self.songs.iter().any(|s| s.path() == path) {
-            return;
-        }
-
-        if let Some(song) = Song::from_path(path.clone()) {
-            info!("Added song: {}", path.display());
-            self.songs.push(song);
-        }
-    }
-
-    fn remove_song_by_path(&mut self, path: &Path) {
-        let before = self.songs.len();
-        self.songs.retain(|s| s.path() != path);
-
-        if self.songs.len() != before {
-            info!("Removed song: {}", path.display());
-        }
-    }
-
-    fn update_song_from_path(&mut self, path: PathBuf) {
-        self.remove_song_by_path(&path);
-        self.add_song_from_path(path);
-    }
-
-    // ========================
-    // Directory resolution
-    // ========================
-
     fn get_library_directory() -> Result<PathBuf> {
-        #[cfg(not(debug_assertions))]
-        {
-            let app_data = if cfg!(target_os = "windows") {
-                std::env::var("APPDATA")
-                    .map(PathBuf::from)
-                    .context("Failed to get APPDATA")?
-                    .join("PWE Karaoke")
-            } else {
-                dirs::data_dir()
-                    .context("Failed to get data directory")?
-                    .join("pwe-karaoke")
-            };
-
-            let dir = app_data.join("Library");
-            std::fs::create_dir_all(&dir)?;
-            Ok(dir)
-        }
-
         #[cfg(debug_assertions)]
         {
             let dir = PathBuf::from("dev_library_v2");
             std::fs::create_dir_all(&dir)?;
             Ok(dir)
         }
+
+        #[cfg(not(debug_assertions))]
+        {
+            let dir = dirs::data_dir()
+                .context("No data dir")?
+                .join("pwe-karaoke")
+                .join("Library");
+
+            std::fs::create_dir_all(&dir)?;
+            Ok(dir)
+        }
+    }
+
+    fn try_scan(&mut self) -> Result<()> {
+        for entry in walkdir::WalkDir::new(&self._path)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(Result::ok)
+        {
+            let path = entry.path();
+            if path.is_file() && is_audio_file(path) {
+                if let Some(song) = Song::from_path(path.to_path_buf()) {
+                    self.songs.push(song);
+                }
+            }
+        }
+        Ok(())
     }
 }
