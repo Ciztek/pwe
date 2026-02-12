@@ -216,8 +216,8 @@ impl Transcriber {
             // Convert SRT to LRC format
             self.convert_srt_to_lrc(&srt_path, &lrc_path)?;
 
-            // Clean up the SRT file
-            let _ = std::fs::remove_file(&srt_path);
+            // Keep the SRT file for now for debugging (don't delete it)
+            // let _ = std::fs::remove_file(&srt_path);
 
             info!(
                 "Transcription completed and converted: {}",
@@ -243,36 +243,84 @@ impl Transcriber {
         let srt_content = std::fs::read_to_string(srt_path)
             .map_err(|e| format!("Failed to read SRT file: {}", e))?;
 
-        let lrc_lines = vec![
+        info!("SRT file size: {} bytes", srt_content.len());
+
+        // Debug: Save first 500 chars to see format
+        let preview = if srt_content.len() > 500 {
+            &srt_content[..500]
+        } else {
+            &srt_content
+        };
+        info!("SRT preview (first 500 chars): {:?}", preview);
+
+        let mut lrc_lines = vec![
             "[ar:Unknown Artist]".to_string(),
             "[ti:Transcribed Lyrics]".to_string(),
             "[by:PWE Karaoke - Whisper]".to_string(),
             String::new(),
         ];
 
-        let mut lrc_lines = lrc_lines;
+        // Normalize line endings to \n
+        let normalized_content = srt_content.replace("\r\n", "\n");
 
-        // Parse SRT format
-        let blocks: Vec<&str> = srt_content.split("\n\n").collect();
+        // Parse SRT format - blocks are separated by blank lines
+        let blocks: Vec<&str> = normalized_content.split("\n\n").collect();
+        info!("Found {} SRT blocks to convert", blocks.len());
 
         for block in blocks {
-            let lines: Vec<&str> = block.lines().collect();
-            if lines.len() >= 3 {
-                // SRT format:
-                // 1
-                // 00:00:00,000 --> 00:00:05,000
-                // Text content
+            let block = block.trim();
+            if block.is_empty() {
+                continue;
+            }
 
-                let timestamp_line = lines[1];
-                if let Some(start_time) = timestamp_line.split(" --> ").next() {
-                    // Convert SRT timestamp (HH:MM:SS,mmm) to LRC format [MM:SS.xx]
-                    if let Some(lrc_timestamp) = self.srt_to_lrc_timestamp(start_time) {
-                        let text = lines[2..].join(" ");
+            let lines: Vec<&str> = block.lines().collect();
+            if lines.len() < 3 {
+                info!(
+                    "Skipping block with only {} lines: {:?}",
+                    lines.len(),
+                    lines
+                );
+                continue;
+            }
+
+            // SRT format:
+            // 1
+            // 00:00:00,000 --> 00:00:05,000
+            // Text content (can be multiple lines)
+
+            // Skip the sequence number (first line) - verify it's a number
+            if lines[0].trim().parse::<u32>().is_err() {
+                info!("Skipping block - first line is not a number: {}", lines[0]);
+                continue;
+            }
+
+            let timestamp_line = lines[1];
+
+            // Verify timestamp line has the expected format
+            if !timestamp_line.contains(" --> ") {
+                info!(
+                    "Skipping block - invalid timestamp line: {}",
+                    timestamp_line
+                );
+                continue;
+            }
+
+            // Extract start timestamp
+            if let Some(start_time) = timestamp_line.split(" --> ").next() {
+                // Convert SRT timestamp (HH:MM:SS,mmm) to LRC format [MM:SS.xx]
+                if let Some(lrc_timestamp) = self.srt_to_lrc_timestamp(start_time) {
+                    // Join all text lines (from line 2 onwards)
+                    let text = lines[2..].join(" ").trim().to_string();
+                    if !text.is_empty() {
                         lrc_lines.push(format!("{}{}", lrc_timestamp, text));
                     }
+                } else {
+                    info!("Failed to convert timestamp: {}", start_time);
                 }
             }
         }
+
+        info!("Converted {} SRT entries to LRC", lrc_lines.len() - 4);
 
         let lrc_content = lrc_lines.join("\n");
         std::fs::write(lrc_path, lrc_content)
