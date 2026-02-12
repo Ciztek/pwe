@@ -78,6 +78,7 @@ regex = "1"
 default = []
 spleeter = ["pyo3"]
 custom-font = []
+repl = []
 
 [profile.release]
 opt-level = 3

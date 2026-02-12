@@ -1,3 +1,6 @@
+#[cfg(feature = "repl")]
+mod repl;
+
 mod library;
 mod song;
 
@@ -74,9 +77,7 @@ impl eframe::App for KaraokeApp {
 fn main() -> eframe::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let options = eframe::NativeOptions::default();
-
-    let library = match Library::try_new() {
+    let mut library = match Library::try_new() {
         Ok(lib) => lib,
         Err(e) => {
             error!("Failed to initialize library: {:?}", e);
@@ -84,9 +85,19 @@ fn main() -> eframe::Result<()> {
         },
     };
 
-    eframe::run_native(
-        "PWE Karaoke",
-        options,
-        Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, library)))),
-    )
+    #[cfg(feature = "repl")]
+    {
+        repl::run_repl(&mut library);
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "repl"))]
+    {
+        let options = eframe::NativeOptions::default();
+        eframe::run_native(
+            "PWE Karaoke",
+            options,
+            Box::new(|cc| Ok(Box::new(KaraokeApp::new(cc, library)))),
+        )
+    }
 }
