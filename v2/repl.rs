@@ -1,6 +1,167 @@
-use crate::library::{Library, Playlist};
+use crate::library::{self, Library, Playlist};
 use crate::song::Song;
 use std::io::{self, Write};
+use std::str::SplitWhitespace;
+
+fn next_arg<'a>(args: &mut SplitWhitespace<'a>, usage: &str) -> Option<&'a str> {
+    let Some(arg) = args.next() else {
+        println!("{}", usage);
+        return None;
+    };
+    Some(arg)
+}
+
+fn parse_index(idx_str: &str) -> Option<usize> {
+    let Ok(idx) = idx_str.parse::<usize>() else {
+        println!("Index must be a number");
+        return None;
+    };
+    Some(idx)
+}
+
+fn get_song(library: &Library, idx: usize) -> Option<Song> {
+    let Some(song) = library.songs().get(idx).cloned() else {
+        println!("Invalid song index");
+        return None;
+    };
+    Some(song)
+}
+
+fn list(library: &mut Library, args: &mut SplitWhitespace) -> bool {
+    match args.next() {
+        Some("all") => {
+            for (i, song) in library.songs().iter().enumerate() {
+                println!("{}: {}", i, song.path().display());
+            }
+            return true;
+        },
+        Some("playlists") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&library.playlists()).unwrap()
+            );
+            return true;
+        },
+        Some("playlist") => {
+            let Some(name) = next_arg(args, "Usage: list playlist <name>") else {
+                return true;
+            };
+
+            let Some(pl) = library.playlists().iter().find(|p| p.name == name) else {
+                println!("Playlist '{}' not found", name);
+                return true;
+            };
+
+            for (i, song) in pl.entries.iter().enumerate() {
+                println!("{}: {}", i, song.path().display());
+            }
+            return true;
+        },
+        _ => {
+            println!("Usage: list all | playlists | playlist <name>");
+            return true;
+        },
+    }
+}
+
+fn create(library: &mut Library, args: &mut SplitWhitespace) -> bool {
+    let Some(name) = next_arg(args, "Usage: create <playlist_name>") else {
+        return true;
+    };
+
+    library.playlist_create(name);
+    println!("Playlist '{}' created", name);
+    true
+}
+
+fn delete(library: &mut Library, args: &mut SplitWhitespace) -> bool {
+    let Some(name) = next_arg(args, "Usage: delete <playlist_name>") else {
+        return true;
+    };
+
+    library.playlist_delete(name);
+    println!("Playlist '{}' deleted", name);
+    true
+}
+
+fn add(library: &mut Library, args: &mut SplitWhitespace) -> bool {
+    let Some(pl_name) = next_arg(args, "Usage: add <playlist> <song_idx>") else {
+        return true;
+    };
+
+    let Some(idx_str) = next_arg(args, "Usage: add <playlist> <song_idx>") else {
+        return true;
+    };
+
+    let Some(idx) = parse_index(idx_str) else {
+        return true;
+    };
+
+    let Some(song) = get_song(library, idx) else {
+        return true;
+    };
+
+    library.playlist_add_song(pl_name, &song);
+    println!(
+        "Added '{}' to playlist '{}'",
+        song.path().display(),
+        pl_name
+    );
+    true
+}
+
+fn remove(library: &mut Library, args: &mut SplitWhitespace) -> bool {
+    let Some(pl_name) = next_arg(args, "Usage: remove <playlist> <song_idx>") else {
+        return true;
+    };
+
+    let Some(idx_str) = next_arg(args, "Usage: remove <playlist> <song_idx>") else {
+        return true;
+    };
+
+    let Some(idx) = parse_index(idx_str) else {
+        return true;
+    };
+
+    let Some(song) = get_song(library, idx) else {
+        return true;
+    };
+
+    library.playlist_remove_song(pl_name, &song);
+    println!(
+        "Removed '{}' from playlist '{}'",
+        song.path().display(),
+        pl_name
+    );
+    true
+}
+
+fn exit(_: &mut Library, _: &mut SplitWhitespace) -> bool {
+    println!("Exiting REPL...");
+    false
+}
+
+fn command_unknown(_: &mut Library, parts: &mut SplitWhitespace) -> bool {
+    println!(
+        "Unknown command: '{}', type 'help' for commands",
+        parts.collect::<Vec<_>>().join(" ")
+    );
+    true
+}
+
+fn help(_: &mut Library, _: &mut SplitWhitespace) -> bool {
+    println!("Available commands:");
+    println!("  help                         Show this message");
+    println!("  exit                         Exit the REPL");
+    println!("  list all                     List all songs with index");
+    println!("  list playlists               List all playlists (JSON)");
+    println!("  list playlist <name>         List songs in playlist with index");
+    println!("  create <playlist_name>       Create a new playlist");
+    println!("  delete <playlist_name>       Delete a playlist");
+    println!("  add <playlist> <song_idx>    Add song to playlist");
+    println!("  remove <playlist> <song_idx> Remove song from playlist");
+    true
+}
 
 pub fn run_repl(library: &mut Library) {
     println!("Debug REPL for Library");
@@ -22,117 +183,23 @@ pub fn run_repl(library: &mut Library) {
         }
 
         let mut parts = input.split_whitespace();
-        let cmd = parts.next().unwrap();
+        let Some(cmd) = parts.next() else {
+            continue;
+        };
 
-        match cmd {
-            "help" => {
-                println!("Available commands:");
-                println!("  help                     Show this message");
-                println!("  exit                     Exit the REPL");
-                println!("  list all                 List all songs with index");
-                println!("  list playlists           List all playlists (JSON)");
-                println!("  list playlist <name>     List songs in playlist with index");
-                println!("  create <playlist_name>   Create a new playlist");
-                println!("  delete <playlist_name>   Delete a playlist");
-                println!("  add <playlist> <song_idx>    Add song to playlist");
-                println!("  remove <playlist> <song_idx> Remove song from playlist");
-            },
+        let handler: fn(&mut Library, &mut SplitWhitespace) -> bool = match cmd {
+            "help" => help,
+            "exit" => exit,
+            "list" => list,
+            "create" => create,
+            "delete" => delete,
+            "add" => add,
+            "remove" => remove,
+            _ => command_unknown,
+        };
 
-            "exit" => break,
-
-            "list" => match parts.next() {
-                Some("all") => {
-                    for (i, song) in library.songs().iter().enumerate() {
-                        println!("{}: {}", i, song.path().display());
-                    }
-                },
-                Some("playlists") => {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&library.playlists()).unwrap()
-                    );
-                },
-                Some("playlist") => {
-                    if let Some(name) = parts.next() {
-                        if let Some(pl) = library.playlists().iter().find(|p| p.name == name) {
-                            for (i, song) in pl.entries.iter().enumerate() {
-                                println!("{}: {}", i, song.path().display());
-                            }
-                        } else {
-                            println!("Playlist '{}' not found", name);
-                        }
-                    } else {
-                        println!("Usage: list playlist <name>");
-                    }
-                },
-                _ => println!("Usage: list all | playlists | playlist <name>"),
-            },
-
-            "create" => {
-                if let Some(name) = parts.next() {
-                    library.playlist_create(name);
-                    println!("Playlist '{}' created", name);
-                } else {
-                    println!("Usage: create <playlist_name>");
-                }
-            },
-
-            "delete" => {
-                if let Some(name) = parts.next() {
-                    library.playlist_delete(name);
-                    println!("Playlist '{}' deleted", name);
-                } else {
-                    println!("Usage: delete <playlist_name>");
-                }
-            },
-
-            "add" => {
-                if let (Some(pl_name), Some(idx_str)) = (parts.next(), parts.next()) {
-                    if let Ok(idx) = idx_str.parse::<usize>() {
-                        if let Some(song) = library.songs().get(idx) {
-                            let song = song.clone(); // clone to avoid borrow conflict
-                            library.playlist_add_song(pl_name, &song);
-                            println!(
-                                "Added '{}' to playlist '{}'",
-                                song.path().display(),
-                                pl_name
-                            );
-                        } else {
-                            println!("Invalid song index");
-                        }
-                    } else {
-                        println!("Index must be a number");
-                    }
-                } else {
-                    println!("Usage: add <playlist> <song_idx>");
-                }
-            },
-
-            "remove" => {
-                if let (Some(pl_name), Some(idx_str)) = (parts.next(), parts.next()) {
-                    if let Ok(idx) = idx_str.parse::<usize>() {
-                        if let Some(song) = library.songs().get(idx) {
-                            let song = song.clone(); // clone to avoid borrow conflict
-                            library.playlist_remove_song(pl_name, &song);
-                            println!(
-                                "Removed '{}' from playlist '{}'",
-                                song.path().display(),
-                                pl_name
-                            );
-                        } else {
-                            println!("Invalid song index");
-                        }
-                    } else {
-                        println!("Index must be a number");
-                    }
-                } else {
-                    println!("Usage: remove <playlist> <song_idx>");
-                }
-            },
-
-            _ => {
-                println!("Unknown command: '{}', type 'help' for commands", cmd);
-            },
+        if !handler(library, &mut parts) {
+            break;
         }
     }
 
