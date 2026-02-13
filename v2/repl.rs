@@ -111,11 +111,11 @@ fn add(library: &mut Library, args: &mut SplitWhitespace) -> bool {
 }
 
 fn remove(library: &mut Library, args: &mut SplitWhitespace) -> bool {
-    let Some(pl_name) = next_arg(args, "Usage: remove <playlist> <song_idx>") else {
+    let Some(pl_name) = next_arg(args, "Usage: remove <playlist> <local_song_idx>") else {
         return true;
     };
 
-    let Some(idx_str) = next_arg(args, "Usage: remove <playlist> <song_idx>") else {
+    let Some(idx_str) = next_arg(args, "Usage: remove <playlist> <local_song_idx>") else {
         return true;
     };
 
@@ -123,7 +123,13 @@ fn remove(library: &mut Library, args: &mut SplitWhitespace) -> bool {
         return true;
     };
 
-    let Some(song) = get_song(library, idx) else {
+    let Some(pl) = library.playlists().iter().find(|p| p.name == pl_name) else {
+        println!("Playlist '{}' not found", pl_name);
+        return true;
+    };
+
+    let Some(song) = pl.entries.get(idx).cloned() else {
+        println!("Invalid local song index");
         return true;
     };
 
@@ -151,15 +157,15 @@ fn command_unknown(_: &mut Library, parts: &mut SplitWhitespace) -> bool {
 
 fn help(_: &mut Library, _: &mut SplitWhitespace) -> bool {
     println!("Available commands:");
-    println!("  help                         Show this message");
-    println!("  exit                         Exit the REPL");
-    println!("  list all                     List all songs with index");
-    println!("  list playlists               List all playlists (JSON)");
-    println!("  list playlist <name>         List songs in playlist with index");
-    println!("  create <playlist_name>       Create a new playlist");
-    println!("  delete <playlist_name>       Delete a playlist");
-    println!("  add <playlist> <song_idx>    Add song to playlist");
-    println!("  remove <playlist> <song_idx> Remove song from playlist");
+    println!("  help                                Show this message");
+    println!("  exit                                Exit the REPL");
+    println!("  list all                            List all songs with index");
+    println!("  list playlists                      List all playlists (JSON)");
+    println!("  list playlist <name>                List songs in playlist with index");
+    println!("  create <playlist_name>              Create a new playlist");
+    println!("  delete <playlist_name>              Delete a playlist");
+    println!("  add <playlist> <global_song_idx>    Add song to playlist");
+    println!("  remove <playlist> <local_song_idx>  Remove song from playlist");
     true
 }
 
