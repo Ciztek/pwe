@@ -10,8 +10,8 @@ pub enum Theme {
 impl EnumCycle for Theme {
     fn up(&self) -> Self {
         match self {
-            Theme::Tekkadan => Theme::Barbatos,
-            Theme::Barbatos => Theme::Tekkadan,
+            Self::Tekkadan => Self::Barbatos,
+            Self::Barbatos => Self::Tekkadan,
         }
     }
 
@@ -21,80 +21,80 @@ impl EnumCycle for Theme {
 }
 
 impl Theme {
-    pub fn name(self) -> &'static str {
+    pub const fn name(self) -> &'static str {
         match self {
-            Theme::Tekkadan => "TEKKADAN",
-            Theme::Barbatos => "BARBATOS",
+            Self::Tekkadan => "TEKKADAN",
+            Self::Barbatos => "BARBATOS",
         }
     }
 
-    pub fn background(self) -> egui::Color32 {
+    pub const fn background(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(17, 19, 17), // Void Green
-            Theme::Barbatos => egui::Color32::from_rgb(240, 242, 245), // Hangar Wall
+            Self::Tekkadan => egui::Color32::from_rgb(17, 19, 17), // Void Green
+            Self::Barbatos => egui::Color32::from_rgb(240, 242, 245), // Hangar Wall
         }
     }
 
-    pub fn card_surface(self) -> egui::Color32 {
+    pub const fn card_surface(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(34, 41, 36), // Uniform Green
-            Theme::Barbatos => egui::Color32::WHITE,                // Ceramic Armor
+            Self::Tekkadan => egui::Color32::from_rgb(34, 41, 36), // Uniform Green
+            Self::Barbatos => egui::Color32::WHITE,                // Ceramic Armor
         }
     }
 
-    pub fn primary(self) -> egui::Color32 {
+    pub const fn primary(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(168, 32, 40), // Flower Red
-            Theme::Barbatos => egui::Color32::from_rgb(24, 69, 139), // Cobalt Blue
+            Self::Tekkadan => egui::Color32::from_rgb(168, 32, 40), // Flower Red
+            Self::Barbatos => egui::Color32::from_rgb(24, 69, 139), // Cobalt Blue
         }
     }
 
-    pub fn secondary(self) -> egui::Color32 {
+    pub const fn secondary(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(58, 64, 60), // Gunmetal
-            Theme::Barbatos => egui::Color32::from_rgb(229, 231, 235), // Inner Frame
+            Self::Tekkadan => egui::Color32::from_rgb(58, 64, 60), // Gunmetal
+            Self::Barbatos => egui::Color32::from_rgb(229, 231, 235), // Inner Frame
         }
     }
 
-    pub fn accent(self) -> egui::Color32 {
+    pub const fn accent(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust
-            Theme::Barbatos => egui::Color32::from_rgb(235, 201, 52), // V-Fin Yellow
+            Self::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust
+            Self::Barbatos => egui::Color32::from_rgb(235, 201, 52), // V-Fin Yellow
         }
     }
 
-    pub fn alert(self) -> egui::Color32 {
+    pub const fn alert(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust (same as accent for dark)
-            Theme::Barbatos => egui::Color32::from_rgb(201, 26, 37),  // Chin Red
+            Self::Tekkadan => egui::Color32::from_rgb(212, 141, 59), // Mars Dust (same as accent for dark)
+            Self::Barbatos => egui::Color32::from_rgb(201, 26, 37),  // Chin Red
         }
     }
 
-    pub fn text_primary(self) -> egui::Color32 {
+    pub const fn text_primary(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(232, 230, 227), // Bone White
-            Theme::Barbatos => egui::Color32::from_rgb(31, 41, 55),    // Oil Black
+            Self::Tekkadan => egui::Color32::from_rgb(232, 230, 227), // Bone White
+            Self::Barbatos => egui::Color32::from_rgb(31, 41, 55),    // Oil Black
         }
     }
 
-    pub fn text_muted(self) -> egui::Color32 {
+    pub const fn text_muted(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(149, 155, 150), // Faded Canvas
-            Theme::Barbatos => egui::Color32::from_rgb(107, 114, 128), // Grey
+            Self::Tekkadan => egui::Color32::from_rgb(149, 155, 150), // Faded Canvas
+            Self::Barbatos => egui::Color32::from_rgb(107, 114, 128), // Grey
         }
     }
 
-    pub fn error(self) -> egui::Color32 {
+    pub const fn error(self) -> egui::Color32 {
         match self {
-            Theme::Tekkadan => egui::Color32::from_rgb(239, 68, 68), // Red
-            Theme::Barbatos => egui::Color32::from_rgb(220, 38, 38), // Red
+            Self::Tekkadan => egui::Color32::from_rgb(239, 68, 68), // Red
+            Self::Barbatos => egui::Color32::from_rgb(220, 38, 38), // Red
         }
     }
 
-    pub fn apply(&self, ctx: &egui::Context) {
+    pub fn apply(self, ctx: &egui::Context) {
         let mut visuals = match self {
-            Theme::Tekkadan => egui::Visuals::dark(),
-            Theme::Barbatos => egui::Visuals::light(),
+            Self::Tekkadan => egui::Visuals::dark(),
+            Self::Barbatos => egui::Visuals::light(),
         };
 
         // Set background colors

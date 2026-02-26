@@ -39,12 +39,6 @@ pub struct PlaylistCollection {
 }
 
 impl PlaylistCollection {
-    pub fn new() -> Self {
-        Self {
-            playlists: Vec::new(),
-        }
-    }
-
     pub fn create_playlist(&mut self, name: String) -> bool {
         if self.playlists.iter().any(|p| p.name == name) {
             return false; // Playlist with this name already exists
@@ -62,10 +56,6 @@ impl PlaylistCollection {
         }
     }
 
-    pub fn get_playlist(&self, name: &str) -> Option<&Playlist> {
-        self.playlists.iter().find(|p| p.name == name)
-    }
-
     pub fn get_playlist_mut(&mut self, name: &str) -> Option<&mut Playlist> {
         self.playlists.iter_mut().find(|p| p.name == name)
     }
@@ -76,14 +66,14 @@ impl PlaylistCollection {
         let pwe_dir = config_dir.join("pwe-karaoke");
 
         std::fs::create_dir_all(&pwe_dir)
-            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
 
         let playlists_path = pwe_dir.join("playlists.json");
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize playlists: {}", e))?;
+            .map_err(|e| format!("Failed to serialize playlists: {e}"))?;
 
         std::fs::write(&playlists_path, json)
-            .map_err(|e| format!("Failed to write playlists file: {}", e))?;
+            .map_err(|e| format!("Failed to write playlists file: {e}"))?;
 
         tracing::info!(
             "Saved {} playlists to {:?}",
@@ -94,12 +84,9 @@ impl PlaylistCollection {
     }
 
     pub fn load() -> Self {
-        let config_dir = match dirs::config_dir() {
-            Some(dir) => dir,
-            None => {
-                tracing::warn!("Could not find config directory for playlists");
-                return Self::default();
-            },
+        let Some(config_dir) = dirs::config_dir() else {
+            tracing::warn!("Could not find config directory for playlists");
+            return Self::default();
         };
 
         let playlists_path = config_dir.join("pwe-karaoke").join("playlists.json");

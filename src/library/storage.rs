@@ -27,27 +27,8 @@ pub struct LibraryMetadata {
     pub playlists: Vec<LibraryPlaylist>,
 }
 
-impl LibraryPlaylist {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            entries: Vec::new(),
-        }
-    }
-
-    pub fn add_entry(&mut self, stored_filename: String) {
-        if !self.entries.contains(&stored_filename) {
-            self.entries.push(stored_filename);
-        }
-    }
-
-    pub fn remove_entry(&mut self, stored_filename: &str) {
-        self.entries.retain(|e| e != stored_filename);
-    }
-}
-
 impl LibraryMetadata {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
             playlists: Vec::new(),
@@ -70,32 +51,10 @@ impl LibraryMetadata {
         }
     }
 
-    pub fn add_playlist(&mut self, playlist: LibraryPlaylist) {
-        if !self.playlists.iter().any(|p| p.name == playlist.name) {
-            self.playlists.push(playlist);
-        }
-    }
-
-    pub fn remove_playlist(&mut self, playlist_name: &str) {
-        self.playlists.retain(|p| p.name != playlist_name);
-    }
-
-    pub fn add_song_to_playlist(&mut self, playlist_name: &str, stored_filename: String) {
-        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
-            playlist.add_entry(stored_filename);
-        }
-    }
-
-    pub fn remove_song_from_playlist(&mut self, playlist_name: &str, stored_filename: &str) {
-        if let Some(playlist) = self.playlists.iter_mut().find(|p| p.name == playlist_name) {
-            playlist.remove_entry(stored_filename);
-        }
-    }
-
     pub fn load_from_file(path: &Path) -> Result<Self> {
         let contents =
             std::fs::read_to_string(path).context("Failed to read library metadata file")?;
-        let metadata: LibraryMetadata =
+        let metadata: Self =
             serde_json::from_str(&contents).context("Failed to parse library metadata")?;
         Ok(metadata)
     }
@@ -181,7 +140,7 @@ pub fn copy_to_library(source: &Path) -> Result<String> {
         .and_then(|s| s.to_str())
         .unwrap_or("file");
 
-    let stored_filename = format!("{}_{}.{}", stem, timestamp, extension);
+    let stored_filename = format!("{stem}_{timestamp}.{extension}");
     let dest_path = library_dir.join(&stored_filename);
 
     info!(
@@ -252,7 +211,8 @@ pub fn save_library_metadata(metadata: &LibraryMetadata) -> Result<()> {
 /// Synchronizes the library metadata with actual files on disk
 /// - Removes entries for files that no longer exist
 /// - Updates metadata if files were modified
-/// Returns true if any changes were made
+///
+///   Returns true if any changes were made
 pub fn sync_library(metadata: &mut LibraryMetadata) -> Result<bool> {
     let library_dir = get_library_directory()?;
     let mut changed = false;
@@ -279,7 +239,7 @@ pub fn sync_library(metadata: &mut LibraryMetadata) -> Result<bool> {
 
     // Scan for new files not in metadata
     if let Ok(entries) = std::fs::read_dir(&library_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
+        for entry in entries.filter_map(std::result::Result::ok) {
             let path = entry.path();
 
             // Skip directories and non-audio files
@@ -287,9 +247,8 @@ pub fn sync_library(metadata: &mut LibraryMetadata) -> Result<bool> {
                 continue;
             }
 
-            let filename = match path.file_name().and_then(|s| s.to_str()) {
-                Some(name) => name,
-                None => continue,
+            let Some(filename) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
             };
 
             // Skip metadata file and non-audio files

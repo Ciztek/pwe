@@ -18,7 +18,7 @@ pub struct DownloadProgress {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadStatus {
     Queued,
     Downloading,
@@ -74,14 +74,14 @@ impl Downloader {
 
     // Used in spawned thread - compiler can't detect through closure boundary
     #[allow(dead_code)]
-    pub async fn download_youtube_video(&self, video_id: &str) -> Result<PathBuf, String> {
+    pub fn download_youtube_video(&self, video_id: &str) -> Result<PathBuf, String> {
         if !self.is_available() {
             return Err(
                 "yt-dlp is not installed. Please install it to download videos.".to_string(),
             );
         }
 
-        let url = format!("https://www.youtube.com/watch?v={}", video_id);
+        let url = format!("https://www.youtube.com/watch?v={video_id}");
 
         info!("Downloading YouTube video: {}", video_id);
 
@@ -122,12 +122,12 @@ impl Downloader {
             .arg("after_move:filepath")
             .arg(&url)
             .output()
-            .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+            .map_err(|e| format!("Failed to execute yt-dlp: {e}"))?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("yt-dlp failed: {}", error_msg);
-            return Err(format!("Download failed: {}", error_msg));
+            error!("yt-dlp failed: {error_msg}");
+            return Err(format!("Download failed: {error_msg}"));
         }
 
         let output_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -143,7 +143,7 @@ impl Downloader {
 
     // Reserved for Spotify integration
     #[allow(dead_code)]
-    pub async fn download_spotify_track(
+    pub fn download_spotify_track(
         &self,
         track_name: &str,
         artist: &str,
@@ -157,8 +157,8 @@ impl Downloader {
             );
         }
 
-        let search_query = format!("{} {}", track_name, artist);
-        let search_url = format!("ytsearch1:{}", search_query);
+        let search_query = format!("{track_name} {artist}");
+        let search_url = format!("ytsearch1:{search_query}");
 
         info!("Searching and downloading: {}", search_query);
 
@@ -198,12 +198,12 @@ impl Downloader {
             .arg("after_move:filepath")
             .arg(&search_url)
             .output()
-            .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+            .map_err(|e| format!("Failed to execute yt-dlp: {e}"))?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("yt-dlp failed: {}", error_msg);
-            return Err(format!("Download failed: {}", error_msg));
+            error!("yt-dlp failed: {error_msg}");
+            return Err(format!("Download failed: {error_msg}"));
         }
 
         let output_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -222,11 +222,8 @@ impl Downloader {
         self.output_dir = dir;
     }
 
-    /// Get list of video IDs and titles from a YouTube playlist
-    pub async fn get_playlist_videos(
-        &self,
-        playlist_url: &str,
-    ) -> Result<Vec<(String, String)>, String> {
+    /// Get list of video IDs and titles from a `YouTube` playlist
+    pub fn get_playlist_videos(&self, playlist_url: &str) -> Result<Vec<(String, String)>, String> {
         if !self.is_available() {
             return Err("yt-dlp is not installed".to_string());
         }
@@ -248,12 +245,12 @@ impl Downloader {
             .arg("%(id)s|||%(title)s")
             .arg(playlist_url)
             .output()
-            .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+            .map_err(|e| format!("Failed to execute yt-dlp: {e}"))?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("❌ yt-dlp failed: {}", error_msg);
-            return Err(format!("Failed to fetch playlist: {}", error_msg));
+            error!("❌ yt-dlp failed: {error_msg}");
+            return Err(format!("Failed to fetch playlist: {error_msg}"));
         }
 
         let output_str = String::from_utf8_lossy(&output.stdout);
@@ -274,8 +271,8 @@ impl Downloader {
     }
 
     /// Get list of tracks from a Spotify playlist URL
-    /// Note: Requires yt-dlp with Spotify extractor support
-    pub async fn get_spotify_playlist_tracks(
+    /// Note: Requires `yt-dlp` with Spotify extractor support
+    pub fn get_spotify_playlist_tracks(
         &self,
         playlist_url: &str,
     ) -> Result<Vec<(String, String)>, String> {
@@ -300,11 +297,11 @@ impl Downloader {
             .arg("%(title)s|||%(artist)s,%(uploader)s")
             .arg(playlist_url)
             .output()
-            .map_err(|e| format!("Failed to execute yt-dlp: {}", e))?;
+            .map_err(|e| format!("Failed to execute yt-dlp: {e}"))?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("❌ yt-dlp failed: {}", error_msg);
+            error!("❌ yt-dlp failed: {error_msg}");
 
             // Check if it's a Spotify-specific error
             if error_msg.contains("Spotify") || error_msg.contains("spotify") {
@@ -315,7 +312,7 @@ impl Downloader {
                 );
             }
 
-            return Err(format!("Failed to fetch playlist: {}", error_msg));
+            return Err(format!("Failed to fetch playlist: {error_msg}"));
         }
 
         let output_str = String::from_utf8_lossy(&output.stdout);

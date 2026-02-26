@@ -2,24 +2,52 @@ use crate::lrc::error::LrcError;
 use crate::lrc::timestamp::TimeStamp;
 use crate::lrc::tokens::Token;
 use regex::Regex;
+use std::sync::OnceLock;
 
-fn regexes() -> (Regex, Regex, Regex) {
-    let meta_re = Regex::new(r"^\[(?P<key>[A-Za-z]+):\s+(?P<value>.*)\]$").unwrap();
-    let ts_re = Regex::new(r"\[(?P<min>\d{1,2}):(?P<sec>\d{1,2})(?:\.(?P<ms>\d{1,3}))?\]").unwrap();
-    let enh_re = Regex::new(r"<(?P<min>\d{1,2}):(?P<sec>\d{1,2})(?:\.(?P<ms>\d{1,3}))?>").unwrap();
-    (meta_re, ts_re, enh_re)
+static META_RE: OnceLock<Regex> = OnceLock::new();
+static TS_RE: OnceLock<Regex> = OnceLock::new();
+static ENH_RE: OnceLock<Regex> = OnceLock::new();
+
+fn get_meta_re() -> &'static Regex {
+    META_RE.get_or_init(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"^\[(?P<key>[A-Za-z]+):\s+(?P<value>.*)\]$")
+            .expect("Failed to compile metadata regex")
+    })
+}
+
+fn get_ts_re() -> &'static Regex {
+    TS_RE.get_or_init(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"\[(?P<min>\d{1,2}):(?P<sec>\d{1,2})(?:\.(?P<ms>\d{1,3}))?\]")
+            .expect("Failed to compile timestamp regex")
+    })
+}
+
+fn get_enh_re() -> &'static Regex {
+    ENH_RE.get_or_init(|| {
+        #[allow(clippy::expect_used)]
+        Regex::new(r"<(?P<min>\d{1,2}):(?P<sec>\d{1,2})(?:\.(?P<ms>\d{1,3}))?>")
+            .expect("Failed to compile enhanced timestamp regex")
+    })
 }
 
 /// Tokenize a single line into tokens.
 pub fn tokenize_line(line: &str) -> Result<Vec<Token>, LrcError> {
-    let (meta_re, ts_re, enh_re) = regexes();
+    let meta_re = get_meta_re();
+    let ts_re = get_ts_re();
+    let enh_re = get_enh_re();
     let trimmed = line.trim();
 
     if let Some(cap) = meta_re.captures(trimmed) {
-        return Ok(vec![Token::Metadata {
-            key: cap.name("key").unwrap().as_str().to_string(),
-            value: cap.name("value").unwrap().as_str().to_string(),
-        }]);
+        // If the regex matched, these named captures must exist
+        let key = cap
+            .name("key")
+            .map_or_else(String::new, |m| m.as_str().to_string());
+        let value = cap
+            .name("value")
+            .map_or_else(String::new, |m| m.as_str().to_string());
+        return Ok(vec![Token::Metadata { key, value }]);
     }
 
     let cursor = trimmed;
@@ -58,13 +86,11 @@ pub fn tokenize_line(line: &str) -> Result<Vec<Token>, LrcError> {
                     return Err(LrcError::InvalidTimestamp(slice.to_string()));
                 }
             }
-        } else {
-            if let Some(cap) = enh_re.captures(slice) {
-                if let Some(ts) = TimeStamp::from_captures(&cap) {
-                    out.push(Token::EnhancedTimestamp(ts));
-                } else {
-                    return Err(LrcError::InvalidTimestamp(slice.to_string()));
-                }
+        } else if let Some(cap) = enh_re.captures(slice) {
+            if let Some(ts) = TimeStamp::from_captures(&cap) {
+                out.push(Token::EnhancedTimestamp(ts));
+            } else {
+                return Err(LrcError::InvalidTimestamp(slice.to_string()));
             }
         }
 

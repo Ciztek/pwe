@@ -29,12 +29,12 @@ impl Song {
         let name = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_string())?;
+            .map(std::string::ToString::to_string)?;
 
         let extension = path
             .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_lowercase())?;
+            .and_then(|e| e.to_str())
+            .map(str::to_lowercase)?;
 
         // Check if corresponding .lrc file exists
         let lrc_path = path.with_extension("lrc");
@@ -43,7 +43,7 @@ impl Song {
         // Extract audio metadata including cover art
         let metadata = crate::audio::metadata::extract_metadata(&path).ok();
 
-        Some(Song {
+        Some(Self {
             path,
             name,
             extension,

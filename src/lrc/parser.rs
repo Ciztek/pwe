@@ -3,17 +3,17 @@ use crate::lrc::timestamp::TimeStamp;
 use crate::lrc::tokenizer;
 use crate::lrc::tokens::{LrcEvent, LyricSegment, Token};
 
-/// Parse a vector of tokens (one line) into an LrcEvent.
-pub fn parse_tokens(tokens: Vec<Token>) -> Result<Option<LrcEvent>, LrcError> {
+/// Parse a vector of tokens (one line) into an `LrcEvent`.
+pub fn parse_tokens(tokens: Vec<Token>) -> Option<LrcEvent> {
     if tokens.is_empty() {
-        return Ok(None);
+        return None;
     }
 
     let mut it = tokens.into_iter().peekable();
 
     // Metadata (only allowed as first token in the line)
     if let Some(Token::Metadata { key, value }) = it.peek().cloned() {
-        return Ok(Some(LrcEvent::Metadata { key, value }));
+        return Some(LrcEvent::Metadata { key, value });
     }
 
     let mut timestamps: Vec<TimeStamp> = Vec::new();
@@ -23,7 +23,7 @@ pub fn parse_tokens(tokens: Vec<Token>) -> Result<Option<LrcEvent>, LrcError> {
     }
 
     if timestamps.is_empty() {
-        return Ok(None);
+        return None;
     }
 
     let mut segments: Vec<LyricSegment> = Vec::new();
@@ -64,10 +64,10 @@ pub fn parse_tokens(tokens: Vec<Token>) -> Result<Option<LrcEvent>, LrcError> {
         });
     }
 
-    Ok(Some(LrcEvent::Lyric {
+    Some(LrcEvent::Lyric {
         timestamps,
         segments,
-    }))
+    })
 }
 
 /// Parse an entire LRC text into events.
@@ -76,7 +76,7 @@ pub fn parse_lrc(text: &str) -> Result<Vec<LrcEvent>, LrcError> {
     let token_lines = tokenizer::tokenize(text)?;
 
     for toks in token_lines {
-        if let Some(ev) = parse_tokens(toks)? {
+        if let Some(ev) = parse_tokens(toks) {
             out.push(ev);
         }
     }

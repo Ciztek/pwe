@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tracing::{error, info};
 
-/// Transcriber using OpenAI Whisper for audio-to-lyrics conversion
+/// Transcriber using `OpenAI` Whisper for audio-to-lyrics conversion
 #[derive(Clone)]
 pub struct Transcriber {
     model: String,
@@ -16,7 +16,7 @@ pub struct TranscriptionProgress {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranscriptionStatus {
     Processing,
     Completed,
@@ -24,7 +24,7 @@ pub enum TranscriptionStatus {
 }
 
 impl Transcriber {
-    pub fn new(model: String) -> Self {
+    pub const fn new(model: String) -> Self {
         Self { model }
     }
 
@@ -59,7 +59,7 @@ impl Transcriber {
 
     /// Transcribe audio file to LRC format
     /// Returns the path to the generated .lrc file
-    pub async fn transcribe_to_lrc(&self, audio_path: &Path) -> Result<PathBuf, String> {
+    pub fn transcribe_to_lrc(&self, audio_path: &Path) -> Result<PathBuf, String> {
         if !audio_path.exists() {
             return Err(format!("Audio file not found: {}", audio_path.display()));
         }
@@ -68,17 +68,15 @@ impl Transcriber {
 
         // Try whisper first (more stable and widely compatible)
         if Self::check_whisper() {
-            match self.transcribe_with_whisper(audio_path).await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    info!("Whisper transcription failed, trying openlrc: {}", e);
-                },
+            if let Ok(result) = self.transcribe_with_whisper(audio_path) {
+                return Ok(result);
             }
+            info!("Whisper transcription failed, trying openlrc");
         }
 
         // Fall back to openlrc if whisper isn't available or failed
         if Self::check_openlrc() {
-            return self.transcribe_with_openlrc(audio_path).await;
+            return self.transcribe_with_openlrc(audio_path);
         }
 
         Err(
@@ -89,19 +87,20 @@ impl Transcriber {
         )
     }
 
-    async fn transcribe_with_openlrc(&self, audio_path: &Path) -> Result<PathBuf, String> {
+    fn transcribe_with_openlrc(&self, audio_path: &Path) -> Result<PathBuf, String> {
         info!("Using openlrc for transcription with model: {}", self.model);
 
         // Try direct command first, fall back to Python module syntax
-        let mut cmd = Command::new("openlrc");
         let mut use_python_module = false;
-
-        if Command::new("openlrc").arg("--version").output().is_err() {
+        let mut cmd = if Command::new("openlrc").arg("--version").output().is_err() {
             // Use Python module syntax instead
-            cmd = Command::new("python");
-            cmd.args(["-m", "openlrc"]);
             use_python_module = true;
-        }
+            let mut c = Command::new("python");
+            c.args(["-m", "openlrc"]);
+            c
+        } else {
+            Command::new("openlrc")
+        };
 
         let output = cmd
             .arg(audio_path.to_string_lossy().as_ref())
@@ -112,16 +111,16 @@ impl Transcriber {
             .output()
             .map_err(|e| {
                 if use_python_module {
-                    format!("Failed to execute python -m openlrc: {}", e)
+                    format!("Failed to execute python -m openlrc: {e}")
                 } else {
-                    format!("Failed to execute openlrc: {}", e)
+                    format!("Failed to execute openlrc: {e}")
                 }
             })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("openlrc failed: {}", error_msg);
-            return Err(format!("Transcription failed: {}", error_msg));
+            error!("openlrc failed: {error_msg}");
+            return Err(format!("Transcription failed: {error_msg}"));
         }
 
         // openlrc typically creates the .lrc file next to the audio file
@@ -135,7 +134,7 @@ impl Transcriber {
         }
     }
 
-    async fn transcribe_with_whisper(&self, audio_path: &Path) -> Result<PathBuf, String> {
+    fn transcribe_with_whisper(&self, audio_path: &Path) -> Result<PathBuf, String> {
         info!("Using whisper for transcription with model: {}", self.model);
 
         let output_dir = audio_path
@@ -143,15 +142,16 @@ impl Transcriber {
             .ok_or("Cannot determine output directory")?;
 
         // Try direct command first, fall back to Python module syntax
-        let mut cmd = Command::new("whisper");
         let mut use_python_module = false;
-
-        if Command::new("whisper").arg("--version").output().is_err() {
+        let mut cmd = if Command::new("whisper").arg("--version").output().is_err() {
             // Use Python module syntax instead
-            cmd = Command::new("python");
-            cmd.args(["-m", "whisper"]);
             use_python_module = true;
-        }
+            let mut c = Command::new("python");
+            c.args(["-m", "whisper"]);
+            c
+        } else {
+            Command::new("whisper")
+        };
 
         let output = cmd
             .arg(audio_path.to_string_lossy().as_ref())
@@ -166,24 +166,24 @@ impl Transcriber {
             .output()
             .map_err(|e| {
                 if use_python_module {
-                    format!("Failed to execute python -m whisper: {}", e)
+                    format!("Failed to execute python -m whisper: {e}")
                 } else {
-                    format!("Failed to execute whisper: {}", e)
+                    format!("Failed to execute whisper: {e}")
                 }
             })?;
 
         if !output.status.success() {
             let error_msg = String::from_utf8_lossy(&output.stderr);
-            error!("whisper failed: {}", error_msg);
-            return Err(format!("Transcription failed: {}", error_msg));
+            error!("whisper failed: {error_msg}");
+            return Err(format!("Transcription failed: {error_msg}"));
         }
 
         // Log whisper output for debugging
         let stdout_msg = String::from_utf8_lossy(&output.stdout);
         let stderr_msg = String::from_utf8_lossy(&output.stderr);
-        info!("Whisper stdout: {}", stdout_msg);
+        info!("Whisper stdout: {stdout_msg}");
         if !stderr_msg.is_empty() {
-            info!("Whisper stderr: {}", stderr_msg);
+            info!("Whisper stderr: {stderr_msg}");
         }
 
         // Whisper creates a .srt file in the output directory with the audio file's stem name
@@ -199,13 +199,13 @@ impl Transcriber {
         // Search for .srt file that matches the audio stem (whisper might add language code like .en.srt)
         let mut srt_path: Option<PathBuf> = None;
         if let Ok(entries) = std::fs::read_dir(output_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
+            for entry in entries.filter_map(std::result::Result::ok) {
                 let file_name = entry.file_name();
                 let file_name_str = file_name.to_string_lossy();
                 // Look for files that start with the stem and end with .srt
                 if file_name_str.starts_with(stem_str.as_ref()) && file_name_str.ends_with(".srt") {
                     srt_path = Some(entry.path());
-                    info!("Found SRT file: {}", file_name_str);
+                    info!("Found SRT file: {file_name_str}");
                     break;
                 }
             }
@@ -228,20 +228,21 @@ impl Transcriber {
             // List files in output directory for debugging
             if let Ok(entries) = std::fs::read_dir(output_dir) {
                 let files: Vec<String> = entries
-                    .filter_map(|e| e.ok())
+                    .filter_map(std::result::Result::ok)
                     .filter_map(|e| e.file_name().to_str().map(String::from))
                     .collect();
                 error!("Files in output directory: {:?}", files);
-                error!("Looking for files starting with: {}", stem_str);
+                error!("Looking for files starting with: {stem_str}");
             }
-            Err(format!("SRT file not found with stem: {}", stem_str))
+            Err(format!("SRT file not found with stem: {stem_str}"))
         }
     }
 
     /// Convert SRT subtitle format to LRC lyrics format
+    #[allow(clippy::unused_self)]
     fn convert_srt_to_lrc(&self, srt_path: &PathBuf, lrc_path: &PathBuf) -> Result<(), String> {
         let srt_content = std::fs::read_to_string(srt_path)
-            .map_err(|e| format!("Failed to read SRT file: {}", e))?;
+            .map_err(|e| format!("Failed to read SRT file: {e}"))?;
 
         info!("SRT file size: {} bytes", srt_content.len());
 
@@ -308,11 +309,11 @@ impl Transcriber {
             // Extract start timestamp
             if let Some(start_time) = timestamp_line.split(" --> ").next() {
                 // Convert SRT timestamp (HH:MM:SS,mmm) to LRC format [MM:SS.xx]
-                if let Some(lrc_timestamp) = self.srt_to_lrc_timestamp(start_time) {
+                if let Some(lrc_timestamp) = Self::srt_to_lrc_timestamp(start_time) {
                     // Join all text lines (from line 2 onwards)
                     let text = lines[2..].join(" ").trim().to_string();
                     if !text.is_empty() {
-                        lrc_lines.push(format!("{}{}", lrc_timestamp, text));
+                        lrc_lines.push(format!("{lrc_timestamp}{text}"));
                     }
                 } else {
                     info!("Failed to convert timestamp: {}", start_time);
@@ -324,13 +325,13 @@ impl Transcriber {
 
         let lrc_content = lrc_lines.join("\n");
         std::fs::write(lrc_path, lrc_content)
-            .map_err(|e| format!("Failed to write LRC file: {}", e))?;
+            .map_err(|e| format!("Failed to write LRC file: {e}"))?;
 
         Ok(())
     }
 
     /// Convert SRT timestamp (HH:MM:SS,mmm) to LRC format [MM:SS.xx]
-    fn srt_to_lrc_timestamp(&self, srt_time: &str) -> Option<String> {
+    fn srt_to_lrc_timestamp(srt_time: &str) -> Option<String> {
         // SRT format: 00:01:23,456
         // LRC format: [01:23.45]
 
@@ -355,8 +356,7 @@ impl Transcriber {
         let centiseconds = milliseconds / 10;
 
         Some(format!(
-            "[{:02}:{:02}.{:02}]",
-            total_minutes, seconds, centiseconds
+            "[{total_minutes:02}:{seconds:02}.{centiseconds:02}]"
         ))
     }
 
@@ -380,20 +380,18 @@ mod tests {
 
     #[test]
     fn test_srt_to_lrc_timestamp() {
-        let transcriber = Transcriber::new("turbo".to_string());
-
         assert_eq!(
-            transcriber.srt_to_lrc_timestamp("00:01:23,456"),
+            Transcriber::srt_to_lrc_timestamp("00:01:23,456"),
             Some("[01:23.45]".to_string())
         );
 
         assert_eq!(
-            transcriber.srt_to_lrc_timestamp("00:00:05,100"),
+            Transcriber::srt_to_lrc_timestamp("00:00:05,100"),
             Some("[00:05.10]".to_string())
         );
 
         assert_eq!(
-            transcriber.srt_to_lrc_timestamp("01:30:00,000"),
+            Transcriber::srt_to_lrc_timestamp("01:30:00,000"),
             Some("[90:00.00]".to_string())
         );
     }

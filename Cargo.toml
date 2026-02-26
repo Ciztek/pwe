@@ -6,6 +6,8 @@ authors = ["AEUG"]
 description = "Desktop karaoke application with vocal separation using Spleeter"
 license = "BSD-3-Clause"
 repository = "https://github.com/Ciztek/pwe"
+keywords = ["karaoke", "audio", "music", "lyrics", "player"]
+categories = ["multimedia::audio", "gui"]
 
 [package.metadata.bundle]
 name = "PWE Karaoke"
@@ -77,31 +79,83 @@ lto = true
 codegen-units = 1
 strip = true
 
-# Clippy lints configuration
+# Clippy lints configuration - STRICT MODE
 [lints.clippy]
-# Deny these (important safety/correctness issues)
+# ===== DENY: Critical issues that must be fixed =====
 correctness = { level = "deny", priority = -1 }
 suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
 
-# Warn on these (good practices)
+# ===== WARN: Best practices and code quality =====
 complexity = { level = "warn", priority = -1 }
-perf = { level = "warn", priority = -1 }
 style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 
-# Allow these while learning (can be overwhelming for beginners)
-pedantic = { level = "allow", priority = -1 }
-nursery = { level = "allow", priority = -1 }
-cargo = { level = "allow", priority = -1 }
+# ===== ALLOW: Unavoidable ecosystem issues =====
+# Multiple dependency versions are common due to transitive dependencies
+# and are generally harmless unless they cause actual conflicts
+multiple_crate_versions = "allow"
 
-# Specific allows for beginner-friendly development
-too_many_arguments = "allow"
-must_use_candidate = "allow"
-missing_errors_doc = "allow"
-missing_panics_doc = "allow"
-
-# But still catch important issues
-unwrap_used = "warn"
+# ===== SPECIFIC STRICT LINTS =====
+# Unwraps and panics
 expect_used = "warn"
+unwrap_used = "warn"
 panic = "warn"
-todo = "warn"
 unimplemented = "warn"
+todo = "warn"
+
+# Memory and performance
+large_enum_variant = "warn"
+large_stack_arrays = "warn"
+large_types_passed_by_value = "warn"
+redundant_clone = "warn"
+cloned_instead_of_copied = "warn"
+
+# Error handling
+map_unwrap_or = "warn"
+result_large_err = "warn"
+
+# Code quality
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+needless_pass_by_value = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+
+# Documentation
+missing_docs_in_private_items = "allow"  # Too verbose, but consider enabling
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+# Safety and correctness
+cast_lossless = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+float_cmp = "warn"
+
+# Code style consistency
+module_name_repetitions = "allow"  # Common pattern in Rust
+similar_names = "allow"  # Can be too strict
+too_many_arguments = "warn"  # Changed from allow
+single_match_else = "allow"  # Can be more readable
+match_bool = "warn"
+
+# String handling
+string_add = "warn"
+string_add_assign = "warn"
+
+# Use of std::process::exit
+exit = "warn"
+
+# Regex
+invalid_regex = "deny"
+
+# ===== Rust 2021/2024 idioms =====
+redundant_field_names = "warn"
+redundant_static_lifetimes = "warn"
+explicit_into_iter_loop = "warn"
+explicit_iter_loop = "warn"

@@ -54,17 +54,16 @@ impl AudioMetadata {
     #[allow(dead_code)]
     pub fn display_track_number(&self) -> Option<String> {
         self.track_number.map(|num| {
-            if let Some(total) = self.total_tracks {
-                format!("{:02}/{:02}", num, total)
-            } else {
-                format!("{:02}", num)
-            }
+            self.total_tracks.map_or_else(
+                || format!("{num:02}"),
+                |total| format!("{num:02}/{total:02}"),
+            )
         })
     }
 }
 
 /// Extracts metadata from an audio file using Symphonia
-#[allow(dead_code)]
+#[allow(dead_code, clippy::cognitive_complexity, clippy::too_many_lines)]
 pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<AudioMetadata> {
     let path = path.as_ref();
 
@@ -73,7 +72,10 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<AudioMetadata> {
     let file = std::fs::File::open(path)
         .with_context(|| format!("Failed to open audio file: {}", path.display()))?;
 
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mss = MediaSourceStream::new(
+        Box::new(file),
+        symphonia::core::io::MediaSourceStreamOptions::default(),
+    );
 
     let mut hint = Hint::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
@@ -138,7 +140,7 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<AudioMetadata> {
                     Some(StandardTagKey::Genre) => {
                         metadata.genre = Some(tag.value.to_string());
                     },
-                    Some(StandardTagKey::Date) | Some(StandardTagKey::ReleaseDate) => {
+                    Some(StandardTagKey::Date | StandardTagKey::ReleaseDate) => {
                         metadata.date = Some(tag.value.to_string());
                     },
                     Some(StandardTagKey::Lyrics) => {
@@ -215,7 +217,7 @@ pub fn extract_metadata<P: AsRef<Path>>(path: P) -> Result<AudioMetadata> {
                         metadata.genre = Some(tag.value.to_string());
                     }
                 },
-                Some(StandardTagKey::Date) | Some(StandardTagKey::ReleaseDate) => {
+                Some(StandardTagKey::Date | StandardTagKey::ReleaseDate) => {
                     if metadata.date.is_none() {
                         metadata.date = Some(tag.value.to_string());
                     }

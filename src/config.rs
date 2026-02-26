@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::{error, info};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub audio: AudioConfig,
     pub display: DisplayConfig,
@@ -47,17 +47,6 @@ pub struct NetworkConfig {
 
 fn default_whisper_model() -> String {
     "turbo".to_string()
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            audio: AudioConfig::default(),
-            display: DisplayConfig::default(),
-            library: LibraryConfig::default(),
-            network: NetworkConfig::default(),
-        }
-    }
 }
 
 impl Default for AudioConfig {
@@ -117,23 +106,25 @@ impl AppConfig {
     pub fn load() -> Self {
         let config_path = Self::config_path();
 
-        match std::fs::read_to_string(&config_path) {
-            Ok(contents) => match toml::from_str(&contents) {
-                Ok(config) => {
-                    info!("Loaded configuration from: {}", config_path.display());
-                    config
-                },
-                Err(e) => {
-                    error!("Failed to parse config file: {}", e);
-                    info!("Using default configuration");
-                    Self::default()
-                },
-            },
-            Err(_) => {
+        std::fs::read_to_string(&config_path).map_or_else(
+            |_| {
                 info!("No config file found, using defaults");
                 Self::default()
             },
-        }
+            |contents| {
+                toml::from_str(&contents).map_or_else(
+                    |e| {
+                        error!("Failed to parse config file: {e}");
+                        info!("Using default configuration");
+                        Self::default()
+                    },
+                    |config| {
+                        info!("Loaded configuration from: {}", config_path.display());
+                        config
+                    },
+                )
+            },
+        )
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -142,15 +133,15 @@ impl AppConfig {
         // Create config directory if it doesn't exist
         if let Some(parent) = config_path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                return Err(format!("Failed to create config directory: {}", e));
+                return Err(format!("Failed to create config directory: {e}"));
             }
         }
 
-        let toml_string = toml::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        let toml_string =
+            toml::to_string_pretty(self).map_err(|e| format!("Failed to serialize config: {e}"))?;
 
         std::fs::write(&config_path, toml_string)
-            .map_err(|e| format!("Failed to write config file: {}", e))?;
+            .map_err(|e| format!("Failed to write config file: {e}"))?;
 
         info!("Saved configuration to: {}", config_path.display());
         Ok(())

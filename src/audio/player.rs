@@ -17,7 +17,7 @@ pub struct AudioPlayer {
 
 impl AudioPlayer {
     pub fn new() -> Self {
-        let (_stream, stream_handle) = match OutputStream::try_default() {
+        let (output_stream, stream_handle) = match OutputStream::try_default() {
             Ok(output) => output,
             Err(e) => {
                 error!("Failed to initialize audio output: {}", e);
@@ -36,7 +36,7 @@ impl AudioPlayer {
             Err(e) => {
                 error!("Failed to create audio sink: {}", e);
                 return Self {
-                    _output_stream: Some(_stream),
+                    _output_stream: Some(output_stream),
                     sink: None,
                     start_time: None,
                     pause_time: None,
@@ -46,7 +46,7 @@ impl AudioPlayer {
         };
 
         Self {
-            _output_stream: Some(_stream),
+            _output_stream: Some(output_stream),
             sink: Some(sink),
             start_time: None,
             pause_time: None,
@@ -79,17 +79,17 @@ impl AudioPlayer {
         }
     }
 
-    pub fn reset_position(&mut self) {
+    pub const fn reset_position(&mut self) {
         self.start_time = None;
         self.pause_time = None;
         self.accumulated_time = Duration::ZERO;
     }
 
-    pub fn sink(&self) -> Option<&Arc<Sink>> {
+    pub const fn sink(&self) -> Option<&Arc<Sink>> {
         self.sink.as_ref()
     }
 
-    pub fn is_available(&self) -> bool {
+    pub const fn is_available(&self) -> bool {
         self.sink.is_some()
     }
 

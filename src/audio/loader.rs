@@ -3,12 +3,13 @@ use rodio::Decoder;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use symphonia::core::probe::Hint;
 use tracing::{info, warn};
 
 /// Loads an audio file and returns a decoder ready for playback.
 ///
 /// # Parameters
-/// - `path`: File path (can be &Path, PathBuf, &str, String)
+/// - `path`: File path (can be &Path, `PathBuf`, &str, String)
 ///
 /// # Returns
 /// - `Ok(Decoder)`: Successfully loaded audio decoder
@@ -48,10 +49,13 @@ pub fn get_audio_duration<P: AsRef<Path>>(path: P) -> Option<std::time::Duration
     let file = File::open(path).ok()?;
     let mss = symphonia::default::get_probe()
         .format(
-            &Default::default(),
-            symphonia::core::io::MediaSourceStream::new(Box::new(file), Default::default()),
-            &Default::default(),
-            &Default::default(),
+            &Hint::default(),
+            symphonia::core::io::MediaSourceStream::new(
+                Box::new(file),
+                symphonia::core::io::MediaSourceStreamOptions::default(),
+            ),
+            &symphonia::core::formats::FormatOptions::default(),
+            &symphonia::core::meta::MetadataOptions::default(),
         )
         .ok()?;
 
@@ -59,6 +63,7 @@ pub fn get_audio_duration<P: AsRef<Path>>(path: P) -> Option<std::time::Duration
     let time_base = track.codec_params.time_base?;
     let n_frames = track.codec_params.n_frames?;
 
+    #[allow(clippy::cast_precision_loss)]
     let seconds = time_base.calc_time(n_frames).seconds as f64 + time_base.calc_time(n_frames).frac;
 
     Some(std::time::Duration::from_secs_f64(seconds))
@@ -67,11 +72,11 @@ pub fn get_audio_duration<P: AsRef<Path>>(path: P) -> Option<std::time::Duration
 /// Formats an error into a user-friendly message for display in the UI.
 ///
 /// # Parameters
-/// - `err`: Error from load_audio_file() or related operations
+/// - `err`: Error from `load_audio_file()` or related operations
 ///
 /// # Returns
 /// Human-readable error string suitable for UI display
 pub fn format_load_error(err: &anyhow::Error) -> String {
     warn!("Audio loading error: {}", err);
-    format!("Could not load audio file:\n{}", err)
+    format!("Could not load audio file:\n{err}")
 }
